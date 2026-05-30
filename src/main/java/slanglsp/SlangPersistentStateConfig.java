@@ -1,28 +1,33 @@
 package slanglsp;
 
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Paths;
 import java.util.*;
 
-import com.intellij.util.xmlb.Converter;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleManager;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ModuleRootManager;
+import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import com.google.gson.*;
-import com.intellij.openapi.components.PersistentStateComponent;
-import com.intellij.openapi.components.ServiceManager;
-import com.intellij.openapi.components.State;
-import com.intellij.openapi.components.Storage;
-import com.intellij.openapi.project.Project;
-import com.intellij.util.xmlb.XmlSerializerUtil;
 
 import javax.print.DocFlavor;
 import java.io.*;
+import java.util.function.Supplier;
 
 
 @State(
-    name="SlangPersistentStateComponentConfig",
-    storages = {
-        @Storage("SlangPluginSettings.xml")
-    }
+        name="SlangPersistentStateComponentConfig",
+        storages = {
+                @Storage("SlangPluginSettings.xml")
+        }
 )
 class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersistentStateConfig.State>
 {
@@ -53,55 +58,122 @@ class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersis
         public boolean equals(State other)
         {
             return true
-                && additionalIncludePaths.equals(other.additionalIncludePaths)
-                && predefinedMacros.equals(other.predefinedMacros)
-                && explicitSlangdLocation.equals(other.explicitSlangdLocation)
-                && enableCommitCharactersInAutoCompletion.equals(other.enableCommitCharactersInAutoCompletion)
-                && enableInlayHintsForDeducedTypes.equals(other.enableInlayHintsForDeducedTypes)
-                && enableInlayHintsForParameterNames.equals(other.enableInlayHintsForParameterNames)
-                && enableSearchingSubDirectoriesOfWorkspace.equals(other.enableSearchingSubDirectoriesOfWorkspace)
-                ;
+                    && additionalIncludePaths.equals(other.additionalIncludePaths)
+                    && predefinedMacros.equals(other.predefinedMacros)
+                    && explicitSlangdLocation.equals(other.explicitSlangdLocation)
+                    && enableCommitCharactersInAutoCompletion.equals(other.enableCommitCharactersInAutoCompletion)
+                    && enableInlayHintsForDeducedTypes.equals(other.enableInlayHintsForDeducedTypes)
+                    && enableInlayHintsForParameterNames.equals(other.enableInlayHintsForParameterNames)
+                    && enableSearchingSubDirectoriesOfWorkspace.equals(other.enableSearchingSubDirectoriesOfWorkspace)
+                    ;
         }
 
-        Object createJSONFromObject()
+        Object createJSONFromObject(Project project)
         {
-            Gson gson = new Gson();
-            Map<String, String> stringMap = new HashMap<>();
+            Map<String, Object> stringMap = new HashMap<>();
+
+            List<String> resolvedPaths = getResolvedPaths(project);
 
             String additionalIncludePathsKey = "slang.additionalSearchPaths";
-            String additionalIncludePathsJson = gson.toJson(additionalIncludePaths);
-            stringMap.put(additionalIncludePathsKey, additionalIncludePathsJson);
+            stringMap.put(additionalIncludePathsKey, resolvedPaths);
 
             String predefinedMacrosKey = "slang.predefinedMacros";
-            String predefinedMacrosJson = gson.toJson(predefinedMacros);
-            stringMap.put(predefinedMacrosKey, predefinedMacrosJson);
+            stringMap.put(predefinedMacrosKey, predefinedMacros);
 
             String enableCommitCharactersInAutoCompletionKey = "slang.enableCommitCharactersInAutoCompletion";
-            String enableCommitCharactersInAutoCompletionJson = gson.toJson(enableCommitCharactersInAutoCompletion);
-            stringMap.put(enableCommitCharactersInAutoCompletionKey, enableCommitCharactersInAutoCompletionJson);
+            stringMap.put(enableCommitCharactersInAutoCompletionKey, enableCommitCharactersInAutoCompletion);
 
             String enableInlayHintsForDeducedTypesKey = "slang.inlayHints.deducedTypes";
-            String enableInlayHintsForDeducedTypesJson = gson.toJson(enableInlayHintsForDeducedTypes);
-            stringMap.put(enableInlayHintsForDeducedTypesKey, enableInlayHintsForDeducedTypesJson);
+            stringMap.put(enableInlayHintsForDeducedTypesKey, enableInlayHintsForDeducedTypes);
 
             String enableInlayHintsForParameterNamesKey = "slang.inlayHints.parameterNames";
-            String enableInlayHintsForParameterNamesJson = gson.toJson(enableInlayHintsForParameterNames);
-            stringMap.put(enableInlayHintsForParameterNamesKey, enableInlayHintsForParameterNamesJson);
+            stringMap.put(enableInlayHintsForParameterNamesKey, enableInlayHintsForParameterNames);
 
             String enableSearchingSubDirectoriesOfWorkspaceKey = "slang.searchInAllWorkspaceDirectories";
-            String enableSearchingSubDirectoriesOfWorkspaceJson = gson.toJson(enableSearchingSubDirectoriesOfWorkspace);
-            stringMap.put(enableSearchingSubDirectoriesOfWorkspaceKey, enableSearchingSubDirectoriesOfWorkspaceJson);
+            stringMap.put(enableSearchingSubDirectoriesOfWorkspaceKey, enableSearchingSubDirectoriesOfWorkspace);
 
-            return gson.toJson(stringMap);
+            return stringMap;
+        }
+
+        private @NotNull List<String> getResolvedPaths(Project project) {
+            List<String> resolvedPaths = new ArrayList<>();
+            for (String path : additionalIncludePaths) {
+                resolvedPaths.addAll(resolvePath(project, path));
+            }
+            return resolvedPaths;
+        }
+
+        private @NotNull List<String> resolvePath(Project project, String path) {
+            if (path.contains("$module")) {
+                return resolveModulePath(project, path);
+            }
+            else if(path.contains("$project")) {
+                return resolveProjectPath(project, path);
+            }
+            return pathExists(path) ? List.of(path) : List.of();
+        }
+
+        private @NotNull List<String> resolveModulePath(Project project, String path) {
+            return resolvePathVariable("$module", path, () -> {
+                List<String> modulePaths = new ArrayList<>();
+
+                Module[] modules = ModuleManager.getInstance(project).getModules();
+                for (Module module : modules) {
+                    VirtualFile[] contentRoots = ModuleRootManager.getInstance(module).getContentRoots();
+
+                    for (VirtualFile contentRoot : contentRoots) {
+                        modulePaths.add(contentRoot.getPath());
+                    }
+                }
+
+                return modulePaths;
+            });
+        }
+
+        private @NotNull List<String> resolveProjectPath(Project project, String path) {
+            return resolvePathVariable("$project", path, () -> {
+                String basePath = project.getBasePath();
+                if (basePath == null) {
+                    return List.of();
+                }
+
+                return List.of(basePath);
+            });
+        }
+
+        private @NotNull List<String> resolvePathVariable(
+                String variableName,
+                String path,
+                Supplier<List<String>> replacementValuesSupplier
+        ) {
+            List<String> resolvedPaths = new ArrayList<>();
+
+            for (String replacementValue : replacementValuesSupplier.get()) {
+                String resolvedPath = path.replace(variableName, replacementValue);
+                if (pathExists(resolvedPath)) {
+                    resolvedPaths.add(resolvedPath);
+                }
+            }
+
+            return resolvedPaths;
+        }
+
+        private boolean pathExists(String path) {
+            try {
+                return Files.exists(Paths.get(path));
+            }
+            catch (InvalidPathException ignored) {
+                return false;
+            }
         }
     }
 
     @NotNull
     private State state = new State();
 
-    Object createJSONFromObject()
+    Object createJSONFromObject(Project project)
     {
-        return state.createJSONFromObject();
+        return state.createJSONFromObject(project);
     }
 
     String getExplicitSlangdLocation()

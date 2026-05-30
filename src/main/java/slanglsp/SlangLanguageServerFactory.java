@@ -2,7 +2,18 @@ package slanglsp;
 
 import com.intellij.notification.NotificationGroupManager;
 import com.intellij.notification.NotificationType;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.startup.StartupManager;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.newvfs.BulkFileListener;
+import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent;
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.util.EnvironmentUtil;
 import com.redhat.devtools.lsp4ij.LanguageServerFactory;
@@ -22,8 +33,16 @@ import java.nio.file.Paths;
 import java.util.zip.ZipEntry;
 import java.util.concurrent.LinkedBlockingDeque;
 
+import com.intellij.openapi.Disposable;
+
 public class SlangLanguageServerFactory implements LanguageServerFactory
 {
+    private static final List<String> SLANG_FILE_EXTENSIONS = List.of(
+            ".slang",
+            ".slangh",
+            ".slang-module"
+    );
+
     Path getSlangTextMateBundlePath()
     {
         return slanglsp.SlangUtils.getPluginDir().resolve("slang-vscode-extension");
@@ -39,9 +58,9 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
         } catch (Exception e)
         {
             NotificationGroupManager.getInstance().getNotificationGroup("Slang LSP").createNotification(
-                "Slang LSP",
-                "The Slang-TextMate-json file is not embedded into the lsp plugin",
-                NotificationType.ERROR
+                    "Slang LSP",
+                    "The Slang-TextMate-json file is not embedded into the lsp plugin",
+                    NotificationType.ERROR
             ).notify(project);
         }
         TextMateService.getInstance().reloadEnabledBundles();
@@ -58,9 +77,9 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
         } catch (Exception e)
         {
             NotificationGroupManager.getInstance().getNotificationGroup("Slang LSP").createNotification(
-                "Slang LSP",
-                "failed to create to versionCache.txt. Requires ability to create+read+write files",
-                NotificationType.ERROR
+                    "Slang LSP",
+                    "Failed to create to versionCache.txt. requires ability to create+read+write files",
+                    NotificationType.ERROR
             ).notify(project);
         }
     }
@@ -91,9 +110,9 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
     void failedToMakeFolder(Project project)
     {
         NotificationGroupManager.getInstance().getNotificationGroup("Slang LSP").createNotification(
-            "Slang LSP",
-            "Failed to create folder",
-            NotificationType.ERROR
+                "Slang LSP",
+                "Failed to create folder",
+                NotificationType.ERROR
         ).notify(project);
     }
 
@@ -230,17 +249,62 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
 
 
     @NotNull
-    public StreamConnectionProvider createConnectionProvider(Project project)
+    public StreamConnectionProvider createConnectionProvider(@NotNull Project project)
     {
         tryRunInitLogic(project);
         return new SlangLanguageServer(project);
     }
 
     @NotNull
-    public LanguageClientImpl createLanguageClient(Project project)
+    public LanguageClientImpl createLanguageClient(@NotNull Project project)
     {
         tryRunInitLogic(project);
-        return new SlangLanguageClient(project);
+        SlangLanguageClient client = new SlangLanguageClient(project);
+        Disposer.register(project.getService(SlangProjectDisposableService.class), client);
+
+        project.getMessageBus().connect(client).subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
+            @Override
+            public void before(@NotNull List<? extends VFileEvent> events) {
+                boolean deletesSlangFiles = events.stream()
+                        .anyMatch(event -> event instanceof VFileDeleteEvent
+                                && containsSlangFile(((VFileDeleteEvent) event).getFile()));
+
+                if (deletesSlangFiles) {
+                    client.triggerChangeConfiguration();
+                }
+            }
+
+            @Override
+            public void after(@NotNull List<? extends VFileEvent> events) {
+                boolean hasSlangChanges = events.stream()
+                        .anyMatch(event -> {
+                            VirtualFile file = event.getFile();
+                            if (file != null && containsSlangFile(file)) {
+                                return true;
+                            }
+
+                            return isSlangFilePath(event.getPath());
+                        });
+
+                if (hasSlangChanges)
+                {
+                    client.triggerChangeConfiguration();
+                }
+            }
+        });
+        return client;
+    }
+
+    private static boolean containsSlangFile(@NotNull VirtualFile file)
+    {
+        return !VfsUtilCore.processFilesRecursively(file, virtualFile ->
+            virtualFile.isDirectory() || !isSlangFilePath(virtualFile.getName())
+        );
+    }
+
+    private static boolean isSlangFilePath(@NotNull String path)
+    {
+        return SLANG_FILE_EXTENSIONS.stream().anyMatch(path::endsWith);
     }
 };
 
@@ -266,9 +330,9 @@ class SlangLanguageServer extends ProcessStreamConnectionProvider
         else
         {
             NotificationGroupManager.getInstance().getNotificationGroup("Slang LSP").createNotification(
-                "Slang LSP",
-                "`slangd`/`slangd.exe` was not found in the `PATH` environment variable. It is preferable to add (once the latest vulkan SDK is installed) `$VK_SDK_PATH/bin` to your `PATH` environment variable (on linux the paths *may* differ slightly) to use `slangd` bundled with the Vulkan SDK. After these steps, restart this IDE.",
-                NotificationType.ERROR
+                    "Slang LSP",
+                    "`slangd`/`slangd.exe` was not found in the `PATH` environment variable. It is preferable to add (once the latest vulkan SDK is installed) `$VK_SDK_PATH/bin` to your `PATH` environment variable (on linux the paths *may* differ slightly) to use `slangd` bundled with the Vulkan SDK. After these steps, restart this IDE.",
+                    NotificationType.ERROR
             ).notify(project);
             LanguageServerManager.getInstance(project).stop("slangLanguageServer");
         }
@@ -321,7 +385,7 @@ class SlangLanguageServer extends ProcessStreamConnectionProvider
     }
 }
 
-class SlangLanguageClient extends LanguageClientImpl
+class SlangLanguageClient extends LanguageClientImpl implements Disposable
 {
     static LinkedBlockingDeque<SlangLanguageClient> maybeAliveClients = new LinkedBlockingDeque<>();
 
@@ -336,7 +400,7 @@ class SlangLanguageClient extends LanguageClientImpl
     public Object createSettings()
     {
         var state = SlangPersistentStateConfig.getInstance(project).getState();
-        return state.createJSONFromObject();
+        return state.createJSONFromObject(project);
     }
 
     public void triggerChangeConfiguration()
@@ -344,15 +408,33 @@ class SlangLanguageClient extends LanguageClientImpl
         super.triggerChangeConfiguration();
     }
 
-    public void handleServerStatusChanged(ServerStatus serverStatus)
+    private void triggerChangeConfigurationWhenProjectIsReady()
+    {
+        StartupManager.getInstance(project).runAfterOpened(() ->
+                DumbService.getInstance(project).runWhenSmart(() ->
+                        ApplicationManager.getApplication().invokeLater(
+                                this::triggerChangeConfiguration,
+                                ModalityState.nonModal(),
+                                project.getDisposed()
+                        )
+                )
+        );
+    }
+
+    public void handleServerStatusChanged(@NotNull ServerStatus serverStatus)
     {
         if (serverStatus == ServerStatus.started)
         {
-            triggerChangeConfiguration();
+            triggerChangeConfigurationWhenProjectIsReady();
         }
         if(serverStatus == ServerStatus.stopped)
         {
-            maybeAliveClients.remove(this);
+            Disposer.dispose(this);
         }
+    }
+
+    @Override
+    public void dispose() {
+        maybeAliveClients.remove(this);
     }
 }

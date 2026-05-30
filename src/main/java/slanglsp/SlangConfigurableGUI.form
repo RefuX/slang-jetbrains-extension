@@ -84,6 +84,7 @@
         </constraints>
         <properties>
           <text value="Additional Include/Import Paths"/>
+          <toolTipText value="Specify paths using $project or $module (e.g., $project/build/slang/imports or $module/shaders/includes)."/>
         </properties>
       </component>
       <component id="10d0f" class="javax.swing.JLabel">
@@ -96,7 +97,7 @@
       </component>
       <grid id="e4eb4" binding="predefinedMacrosContainer" layout-manager="GridBagLayout">
         <constraints>
-          <grid row="9" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="3" anchor="9" fill="0" indent="5" use-parent-layout="false"/>
+          <grid row="9" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="6" anchor="9" fill="1" indent="5" use-parent-layout="false"/>
         </constraints>
         <properties/>
         <border type="none"/>
@@ -123,7 +124,7 @@
       </component>
       <grid id="ba00d" binding="additionalIncludePathsContainer" layout-manager="GridBagLayout">
         <constraints>
-          <grid row="3" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="3" anchor="9" fill="0" indent="5" use-parent-layout="false"/>
+          <grid row="3" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="6" anchor="9" fill="1" indent="5" use-parent-layout="false"/>
         </constraints>
         <properties>
           <opaque value="true"/>
