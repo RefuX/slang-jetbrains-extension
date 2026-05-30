@@ -2,6 +2,7 @@ package slanglsp;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.JBColor;
+import com.intellij.util.ui.JBUI;
 
 import java.awt.GridBagConstraints;
 import javax.swing.*;
@@ -11,6 +12,8 @@ import java.awt.event.ActionListener;
 import java.util.Vector;
 
 public class SlangConfigurableGUI {
+    private static final int TEXT_FIELD_COLUMNS = 40;
+
     private SlangPersistentStateConfig mConfig;
 
     private JCheckBox enableInlayHintsForDeducedTypes;
@@ -37,7 +40,9 @@ public class SlangConfigurableGUI {
         textFieldList.setSize(stringList.size());
         for(int i = 0; i < stringList.size(); i++)
         {
-            textFieldList.set(i, new JTextField(stringList.get(i)));
+            JTextField textField = new JTextField(stringList.get(i));
+            textField.setColumns(TEXT_FIELD_COLUMNS);
+            textFieldList.set(i, textField);
         }
         return textFieldList;
     }
@@ -99,20 +104,25 @@ public class SlangConfigurableGUI {
 
     void addTextFieldToPanel(JPanel panel, JTextField field)
     {
+        field.setColumns(Math.max(field.getColumns(), TEXT_FIELD_COLUMNS));
+
         GridBagConstraints fieldConstraint = new GridBagConstraints();
-        fieldConstraint.gridy = panel.getComponentCount();
+        fieldConstraint.gridy = panel.getComponentCount() / 2;
         fieldConstraint.gridx = 0;
-        fieldConstraint.weightx = 0;
-        fieldConstraint.weighty = 1;
+        fieldConstraint.weightx = 1;
+        fieldConstraint.weighty = 0;
+        fieldConstraint.fill = GridBagConstraints.HORIZONTAL;
         fieldConstraint.anchor = GridBagConstraints.NORTHWEST;
+        fieldConstraint.insets = JBUI.insets(2, 0, 2, 6);
         panel.add(field, fieldConstraint);
 
         GridBagConstraints buttonConstraint = new GridBagConstraints();
         buttonConstraint.gridy = fieldConstraint.gridy;
         buttonConstraint.gridx = 1;
-        buttonConstraint.weightx = 1;
-        buttonConstraint.weighty = 1;
+        buttonConstraint.weightx = 0;
+        buttonConstraint.weighty = 0;
         buttonConstraint.anchor = GridBagConstraints.NORTHEAST;
+        buttonConstraint.insets = JBUI.insets(2, 0);
         JButton deleteButton = new JButton("-");
         deleteButton.setBackground(new JBColor(new Color(0, 120, 229), new Color(0, 120, 229)));
         deleteButton.addActionListener(new ActionListenerDeleteObjWhenClicked(panel, deleteButton, field));
@@ -166,11 +176,14 @@ public class SlangConfigurableGUI {
 
         public void actionPerformed(ActionEvent e)
         {
-            addTextFieldToPanel(toModify, new JTextField("..."));
+            JTextField textField = new JTextField();
+            textField.setColumns(TEXT_FIELD_COLUMNS);
+            addTextFieldToPanel(toModify, textField);
+            textField.requestFocusInWindow();
         }
     }
 
-    class ActionListenerDeleteObjWhenClicked implements ActionListener
+    static class ActionListenerDeleteObjWhenClicked implements ActionListener
     {
         JPanel parentPanel;
         JButton listeningObject;
@@ -184,29 +197,24 @@ public class SlangConfigurableGUI {
 
         public void actionPerformed(ActionEvent e)
         {
-            GridBagConstraints removedLayout = (GridBagConstraints)listeningObject.getLayout();
+            GridBagLayout layout = (GridBagLayout)parentPanel.getLayout();
+            GridBagConstraints removedLayout = layout.getConstraints(listeningObject);
+
             parentPanel.remove(listeningObject);
             parentPanel.remove(pairedObject);
+
             for(var i : parentPanel.getComponents())
             {
-                if(!(i instanceof JComponent))
-                    continue;
-
-                JComponent jcomponent = (JComponent)i;
-
-                if(!(jcomponent.getLayout() instanceof GridBagConstraints))
-                    continue;
-
-                GridBagConstraints layoutToModify = (GridBagConstraints) jcomponent.getLayout();
+                GridBagConstraints layoutToModify = layout.getConstraints(i);
                 if(layoutToModify.gridy > removedLayout.gridy)
                 {
                     layoutToModify.gridy -= 1;
+                    layout.setConstraints(i, layoutToModify);
                 }
             }
 
             parentPanel.revalidate();
             parentPanel.repaint();
-            parentPanel.updateUI();
         }
     }
 

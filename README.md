@@ -7,6 +7,11 @@
 
 ---
 
+### Settings
+![Settings](./images/settings.png)
+
+---
+
 ### Jetbrains plugin distribution page
 https://plugins.jetbrains.com/plugin/26239-slang-unofficial-
 
