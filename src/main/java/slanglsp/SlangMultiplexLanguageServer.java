@@ -33,8 +33,8 @@ import static slanglsp.utils.ModuleUtils.getLogicalModuleRoot;
 import static slanglsp.utils.PathUtils.*;
 import static slanglsp.utils.ThreadUtils.startDaemonThread;
 
-class SlangMultiplexProvider implements StreamConnectionProvider {
-    private static final Logger LOG = Logger.getInstance(SlangMultiplexProvider.class);
+class SlangMultiplexLanguageServer implements StreamConnectionProvider {
+    private static final Logger LOG = Logger.getInstance(SlangMultiplexLanguageServer.class);
 
     private static final String METHOD_INITIALIZE = "initialize";
     private static final String METHOD_INITIALIZED = "initialized";
@@ -123,7 +123,7 @@ class SlangMultiplexProvider implements StreamConnectionProvider {
     private record BackendRequestKey(@NotNull SlangdProcess process, @NotNull String id) {
     }
 
-    SlangMultiplexProvider(Project project, String slangdExePath) {
+    SlangMultiplexLanguageServer(Project project, String slangdExePath) {
         this.project = project;
         this.slangdExePath = slangdExePath;
         try {

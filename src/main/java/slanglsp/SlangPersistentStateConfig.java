@@ -15,7 +15,7 @@ import org.jetbrains.annotations.Nullable;
                 @Storage("SlangPluginSettings.xml")
         }
 )
-class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersistentStateConfig.State>
+public class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersistentStateConfig.State>
 {
     public static final String SLANG_ADDITIONAL_SEARCH_PATHS = "slang.additionalSearchPaths";
     public static final String SLANG_PREDEFINED_MACROS = "slang.predefinedMacros";
@@ -23,6 +23,7 @@ class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersis
     public static final String SLANG_INLAY_HINTS_DEDUCED_TYPES = "slang.inlayHints.deducedTypes";
     public static final String SLANG_INLAY_HINTS_PARAMETER_NAMES = "slang.inlayHints.parameterNames";
     public static final String SLANG_SEARCH_IN_ALL_WORKSPACE_DIRECTORIES = "slang.searchInAllWorkspaceDirectories";
+    public static final String SLANG_ENABLE_STRICT_PER_MODULE_ISOLATION = "slang.enableStrictPerModuleIsolation";
 
     static class State
     {
@@ -34,6 +35,7 @@ class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersis
 //        public String traceServer = "off"; // handled by LSP4IJ's (runtime) debug tool
         public String enableCommitCharactersInAutoCompletion = "membersOnly";
 
+        public Boolean enableStrictPerModuleIsolation = false;
         public Boolean enableInlayHintsForDeducedTypes = true;
         public Boolean enableInlayHintsForParameterNames = true;
         public Boolean enableSearchingSubDirectoriesOfWorkspace = true;
@@ -44,6 +46,7 @@ class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersis
             predefinedMacros = otherState.predefinedMacros;
             explicitSlangdLocation = otherState.explicitSlangdLocation;
             enableCommitCharactersInAutoCompletion = otherState.enableCommitCharactersInAutoCompletion;
+            enableStrictPerModuleIsolation = otherState.enableStrictPerModuleIsolation;
             enableInlayHintsForDeducedTypes = otherState.enableInlayHintsForDeducedTypes;
             enableInlayHintsForParameterNames = otherState.enableInlayHintsForParameterNames;
             enableSearchingSubDirectoriesOfWorkspace = otherState.enableSearchingSubDirectoriesOfWorkspace;
@@ -54,6 +57,7 @@ class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersis
                     && predefinedMacros.equals(other.predefinedMacros)
                     && explicitSlangdLocation.equals(other.explicitSlangdLocation)
                     && enableCommitCharactersInAutoCompletion.equals(other.enableCommitCharactersInAutoCompletion)
+                    && enableStrictPerModuleIsolation.equals(other.enableStrictPerModuleIsolation)
                     && enableInlayHintsForDeducedTypes.equals(other.enableInlayHintsForDeducedTypes)
                     && enableInlayHintsForParameterNames.equals(other.enableInlayHintsForParameterNames)
                     && enableSearchingSubDirectoriesOfWorkspace.equals(other.enableSearchingSubDirectoriesOfWorkspace);
@@ -66,6 +70,7 @@ class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersis
             settings.put(SLANG_ADDITIONAL_SEARCH_PATHS, additionalIncludePaths);
             settings.put(SLANG_PREDEFINED_MACROS, predefinedMacros);
             settings.put(SLANG_ENABLE_COMMIT_CHARACTERS_IN_AUTO_COMPLETION, enableCommitCharactersInAutoCompletion);
+            settings.put(SLANG_ENABLE_STRICT_PER_MODULE_ISOLATION, enableStrictPerModuleIsolation);
             settings.put(SLANG_INLAY_HINTS_DEDUCED_TYPES, enableInlayHintsForDeducedTypes);
             settings.put(SLANG_INLAY_HINTS_PARAMETER_NAMES, enableInlayHintsForParameterNames);
             settings.put(SLANG_SEARCH_IN_ALL_WORKSPACE_DIRECTORIES, enableSearchingSubDirectoriesOfWorkspace);
@@ -77,7 +82,7 @@ class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersis
     @NotNull
     private State state = new State();
 
-    String getExplicitSlangdLocation()
+    public String getExplicitSlangdLocation()
     {
         return state.explicitSlangdLocation;
     }

@@ -20,6 +20,7 @@ public class SlangConfigurableGUI {
     private JCheckBox enableInlayHintsForDeducedTypes;
     private JCheckBox enableInlayHintsForParameterNames;
     private JCheckBox enableSearchingSubDirectoriesOfWorkspace;
+    private JCheckBox enableStrictPerModuleIsolation;
     private JTextField explicitSlangdLocation;
     private JPanel root;
     private JButton additionalIncludePathsButton;
@@ -82,6 +83,7 @@ public class SlangConfigurableGUI {
         state.enableInlayHintsForDeducedTypes = enableInlayHintsForDeducedTypes.isSelected();
         state.enableInlayHintsForParameterNames = enableInlayHintsForParameterNames.isSelected();
         state.enableSearchingSubDirectoriesOfWorkspace = enableSearchingSubDirectoriesOfWorkspace.isSelected();
+        state.enableStrictPerModuleIsolation = enableStrictPerModuleIsolation.isSelected();
 
         return state;
     }
@@ -98,6 +100,7 @@ public class SlangConfigurableGUI {
         enableInlayHintsForDeducedTypes.setSelected(state.enableInlayHintsForDeducedTypes);
         enableInlayHintsForParameterNames.setSelected(state.enableInlayHintsForParameterNames);
         enableSearchingSubDirectoriesOfWorkspace.setSelected(state.enableSearchingSubDirectoriesOfWorkspace);
+        enableStrictPerModuleIsolation.setSelected(state.enableStrictPerModuleIsolation);
 
         root.revalidate();
         root.repaint();

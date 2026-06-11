@@ -4,11 +4,8 @@ import com.intellij.notification.NotificationType;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.SystemInfo;
-import com.intellij.util.EnvironmentUtil;
 import com.redhat.devtools.lsp4ij.LanguageServerFactory;
 import com.redhat.devtools.lsp4ij.LanguageServerManager;
-import com.redhat.devtools.lsp4ij.ServerStatus;
 import com.redhat.devtools.lsp4ij.client.LanguageClientImpl;
 import com.redhat.devtools.lsp4ij.server.StreamConnectionProvider;
 import org.jetbrains.annotations.NotNull;
@@ -17,14 +14,12 @@ import org.jetbrains.plugins.textmate.configuration.TextMateUserBundlesSettings;
 
 import java.io.*;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.zip.ZipEntry;
 
 import org.jspecify.annotations.NonNull;
 import slanglsp.utils.NotificationUtil;
-import slanglsp.utils.SlangUtils;
 
 import static slanglsp.utils.NotificationUtil.notifyUser;
 import static slanglsp.utils.NotificationUtil.runOrNotify;
@@ -34,7 +29,7 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
 {
     private static final Logger LOG = Logger.getInstance(SlangLanguageServerFactory.class);
     private static boolean IS_FIRST_INIT = true;
-    private static final Map<Project, SlangMultiplexProvider> SLANG_MULTIPLEX_PROVIDERS = new ConcurrentHashMap<>();
+    private static final Map<Project, SlangMultiplexLanguageServer> SLANG_MULTIPLEX_SERVERS = new ConcurrentHashMap<>();
     private static final String LANGUAGE_SERVER_ID = "slanglsp.SlangLanguageServer";
 
     @NotNull
@@ -58,9 +53,16 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
             return new SlangNoOpProvider();
         }
 
-        SlangMultiplexProvider provider = new SlangMultiplexProvider(project, exePath.get());
-        SLANG_MULTIPLEX_PROVIDERS.put(project, provider);
-        return provider;
+        SlangPersistentStateConfig.State state = SlangPersistentStateConfig.getInstance(project).getState();
+        boolean strictPerModuleIsolation = state.enableStrictPerModuleIsolation;
+        if (strictPerModuleIsolation) {
+            SlangMultiplexLanguageServer slangMultiplexLanguageServer = new SlangMultiplexLanguageServer(project, exePath.get());
+            SLANG_MULTIPLEX_SERVERS.put(project, slangMultiplexLanguageServer);
+
+            return slangMultiplexLanguageServer;
+        }
+
+        return new SlangLanguageServer(project);
     }
 
     @NotNull
@@ -68,8 +70,12 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
     {
         tryRunInitLogic(project);
 
-        SlangMultiplexProvider multiplexProvider = SLANG_MULTIPLEX_PROVIDERS.get(project);
-        SlangLanguageClient client = new SlangLanguageClient(project, multiplexProvider);
+        SlangMultiplexLanguageServer multiplexProvider = SLANG_MULTIPLEX_SERVERS.get(project);
+        if (multiplexProvider == null) {
+            return new SlangLanguageClient(project);
+        }
+
+        SlangMultiplexLanguageClient client = new SlangMultiplexLanguageClient(project, multiplexProvider);
         Disposer.register(project.getService(SlangProjectDisposableService.class), client);
 
         return client;
@@ -271,48 +277,6 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
             IS_FIRST_INIT = false;
             extractSlangVSCodeExtension(project);
             loadTextMate(project);
-        }
-    }
-
-    private static Optional<String> findExecutableUsingExplicitSlangdLocation(Project project)
-    {
-        var state = SlangPersistentStateConfig.getInstance(project);
-        if (state != null && !state.getExplicitSlangdLocation().isEmpty())
-        {
-            var dirFiles = Paths.get(state.getExplicitSlangdLocation()).toFile().listFiles(new FindLspExeFilter());
-            if (dirFiles == null)
-                return Optional.empty();
-            for (var f : dirFiles)
-                return Optional.of(f.getAbsolutePath());
-        }
-        return Optional.empty();
-    }
-
-    private static Optional<String> findExecutableInPATH()
-    {
-        var path = EnvironmentUtil.getValue("PATH");
-        if (path != null && !path.isEmpty()) {
-            for (var pathString : path.split(File.pathSeparator)) {
-                var dirFiles = Paths.get(pathString).toFile().listFiles(new FindLspExeFilter());
-                if (dirFiles == null) continue;
-                for (var f : dirFiles)
-                    return Optional.of(f.getAbsolutePath());
-            }
-        }
-        return Optional.empty();
-    }
-
-    private static String getLspExeName()
-    {
-        return SystemInfo.isWindows ? "slangd.exe" : "slangd";
-    }
-
-    private static class FindLspExeFilter implements FilenameFilter
-    {
-        @Override
-        public boolean accept(File dir, String name)
-        {
-            return dir.canExecute() && name.contentEquals(getLspExeName());
         }
     }
 }

@@ -1,15 +1,19 @@
 package slanglsp.utils;
 
 import java.io.File;
+import java.io.FilenameFilter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
 
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.EnvironmentUtil;
+import slanglsp.SlangPersistentStateConfig;
 import slanglsp.SlangVersion;
-
-import static java.util.List.of;
 
 public class SlangUtils
 {
@@ -44,6 +48,48 @@ public class SlangUtils
             return new SlangVersion("0.0");
         }
         return new SlangVersion(fileStream);
+    }
+
+    public static Optional<String> findExecutableUsingExplicitSlangdLocation(Project project)
+    {
+        var state = SlangPersistentStateConfig.getInstance(project);
+        if (state != null && !state.getExplicitSlangdLocation().isEmpty())
+        {
+            var dirFiles = Paths.get(state.getExplicitSlangdLocation()).toFile().listFiles(new FindLspExeFilter());
+            if (dirFiles == null)
+                return Optional.empty();
+            for (var f : dirFiles)
+                return Optional.of(f.getAbsolutePath());
+        }
+        return Optional.empty();
+    }
+
+    public static Optional<String> findExecutableInPATH()
+    {
+        var path = EnvironmentUtil.getValue("PATH");
+        if (path != null && !path.isEmpty()) {
+            for (var pathString : path.split(File.pathSeparator)) {
+                var dirFiles = Paths.get(pathString).toFile().listFiles(new FindLspExeFilter());
+                if (dirFiles == null) continue;
+                for (var f : dirFiles)
+                    return Optional.of(f.getAbsolutePath());
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static String getLspExeName()
+    {
+        return SystemInfo.isWindows ? "slangd.exe" : "slangd";
+    }
+
+    private static class FindLspExeFilter implements FilenameFilter
+    {
+        @Override
+        public boolean accept(File dir, String name)
+        {
+            return dir.canExecute() && name.contentEquals(getLspExeName());
+        }
     }
 
     static boolean isSlangFile(String path) {
