@@ -1,27 +1,13 @@
 package slanglsp;
 
-import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
-import java.nio.file.Paths;
 import java.util.*;
 
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
-import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ModuleRootManager;
-import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-
-import com.google.gson.*;
-
-import javax.print.DocFlavor;
-import java.io.*;
-import java.util.function.Supplier;
-
 
 @State(
         name="SlangPersistentStateComponentConfig",
@@ -31,9 +17,16 @@ import java.util.function.Supplier;
 )
 class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersistentStateConfig.State>
 {
+    public static final String SLANG_ADDITIONAL_SEARCH_PATHS = "slang.additionalSearchPaths";
+    public static final String SLANG_PREDEFINED_MACROS = "slang.predefinedMacros";
+    public static final String SLANG_ENABLE_COMMIT_CHARACTERS_IN_AUTO_COMPLETION = "slang.enableCommitCharactersInAutoCompletion";
+    public static final String SLANG_INLAY_HINTS_DEDUCED_TYPES = "slang.inlayHints.deducedTypes";
+    public static final String SLANG_INLAY_HINTS_PARAMETER_NAMES = "slang.inlayHints.parameterNames";
+    public static final String SLANG_SEARCH_IN_ALL_WORKSPACE_DIRECTORIES = "slang.searchInAllWorkspaceDirectories";
+
     static class State
     {
-        // TODO: make a cached state which transforms this State into an efficent to compare state (assumes rare to change settings)
+        // TODO: make a cached state which transforms this State into an efficient to compare state (assumes rare to change settings)
         public List<String> additionalIncludePaths = new ArrayList<>();
         public List<String> predefinedMacros = List.of("__EXAMPLE_MACRO1", "__EXAMPLE_MACRO2=VALUE");
 
@@ -57,124 +50,32 @@ class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersis
         }
         public boolean equals(State other)
         {
-            return true
-                    && additionalIncludePaths.equals(other.additionalIncludePaths)
+            return additionalIncludePaths.equals(other.additionalIncludePaths)
                     && predefinedMacros.equals(other.predefinedMacros)
                     && explicitSlangdLocation.equals(other.explicitSlangdLocation)
                     && enableCommitCharactersInAutoCompletion.equals(other.enableCommitCharactersInAutoCompletion)
                     && enableInlayHintsForDeducedTypes.equals(other.enableInlayHintsForDeducedTypes)
                     && enableInlayHintsForParameterNames.equals(other.enableInlayHintsForParameterNames)
-                    && enableSearchingSubDirectoriesOfWorkspace.equals(other.enableSearchingSubDirectoriesOfWorkspace)
-                    ;
+                    && enableSearchingSubDirectoriesOfWorkspace.equals(other.enableSearchingSubDirectoriesOfWorkspace);
         }
 
-        Object createJSONFromObject(Project project)
+        Map<String, Object> toSettings()
         {
-            Map<String, Object> stringMap = new HashMap<>();
+            Map<String, Object> settings = new HashMap<>();
 
-            List<String> resolvedPaths = getResolvedPaths(project);
+            settings.put(SLANG_ADDITIONAL_SEARCH_PATHS, additionalIncludePaths);
+            settings.put(SLANG_PREDEFINED_MACROS, predefinedMacros);
+            settings.put(SLANG_ENABLE_COMMIT_CHARACTERS_IN_AUTO_COMPLETION, enableCommitCharactersInAutoCompletion);
+            settings.put(SLANG_INLAY_HINTS_DEDUCED_TYPES, enableInlayHintsForDeducedTypes);
+            settings.put(SLANG_INLAY_HINTS_PARAMETER_NAMES, enableInlayHintsForParameterNames);
+            settings.put(SLANG_SEARCH_IN_ALL_WORKSPACE_DIRECTORIES, enableSearchingSubDirectoriesOfWorkspace);
 
-            String additionalIncludePathsKey = "slang.additionalSearchPaths";
-            stringMap.put(additionalIncludePathsKey, resolvedPaths);
-
-            String predefinedMacrosKey = "slang.predefinedMacros";
-            stringMap.put(predefinedMacrosKey, predefinedMacros);
-
-            String enableCommitCharactersInAutoCompletionKey = "slang.enableCommitCharactersInAutoCompletion";
-            stringMap.put(enableCommitCharactersInAutoCompletionKey, enableCommitCharactersInAutoCompletion);
-
-            String enableInlayHintsForDeducedTypesKey = "slang.inlayHints.deducedTypes";
-            stringMap.put(enableInlayHintsForDeducedTypesKey, enableInlayHintsForDeducedTypes);
-
-            String enableInlayHintsForParameterNamesKey = "slang.inlayHints.parameterNames";
-            stringMap.put(enableInlayHintsForParameterNamesKey, enableInlayHintsForParameterNames);
-
-            String enableSearchingSubDirectoriesOfWorkspaceKey = "slang.searchInAllWorkspaceDirectories";
-            stringMap.put(enableSearchingSubDirectoriesOfWorkspaceKey, enableSearchingSubDirectoriesOfWorkspace);
-
-            return stringMap;
-        }
-
-        private @NotNull List<String> getResolvedPaths(Project project) {
-            List<String> resolvedPaths = new ArrayList<>();
-            for (String path : additionalIncludePaths) {
-                resolvedPaths.addAll(resolvePath(project, path));
-            }
-            return resolvedPaths;
-        }
-
-        private @NotNull List<String> resolvePath(Project project, String path) {
-            if (path.contains("$module")) {
-                return resolveModulePath(project, path);
-            }
-            else if(path.contains("$project")) {
-                return resolveProjectPath(project, path);
-            }
-            return pathExists(path) ? List.of(path) : List.of();
-        }
-
-        private @NotNull List<String> resolveModulePath(Project project, String path) {
-            return resolvePathVariable("$module", path, () -> {
-                List<String> modulePaths = new ArrayList<>();
-
-                Module[] modules = ModuleManager.getInstance(project).getModules();
-                for (Module module : modules) {
-                    VirtualFile[] contentRoots = ModuleRootManager.getInstance(module).getContentRoots();
-
-                    for (VirtualFile contentRoot : contentRoots) {
-                        modulePaths.add(contentRoot.getPath());
-                    }
-                }
-
-                return modulePaths;
-            });
-        }
-
-        private @NotNull List<String> resolveProjectPath(Project project, String path) {
-            return resolvePathVariable("$project", path, () -> {
-                String basePath = project.getBasePath();
-                if (basePath == null) {
-                    return List.of();
-                }
-
-                return List.of(basePath);
-            });
-        }
-
-        private @NotNull List<String> resolvePathVariable(
-                String variableName,
-                String path,
-                Supplier<List<String>> replacementValuesSupplier
-        ) {
-            List<String> resolvedPaths = new ArrayList<>();
-
-            for (String replacementValue : replacementValuesSupplier.get()) {
-                String resolvedPath = path.replace(variableName, replacementValue);
-                if (pathExists(resolvedPath)) {
-                    resolvedPaths.add(resolvedPath);
-                }
-            }
-
-            return resolvedPaths;
-        }
-
-        private boolean pathExists(String path) {
-            try {
-                return Files.exists(Paths.get(path));
-            }
-            catch (InvalidPathException ignored) {
-                return false;
-            }
+            return settings;
         }
     }
 
     @NotNull
     private State state = new State();
-
-    Object createJSONFromObject(Project project)
-    {
-        return state.createJSONFromObject(project);
-    }
 
     String getExplicitSlangdLocation()
     {
@@ -198,7 +99,6 @@ class SlangPersistentStateConfig implements PersistentStateComponent<SlangPersis
     {
         state = config;
     }
-
 
     @Nullable
     public static SlangPersistentStateConfig getInstance(Project project)

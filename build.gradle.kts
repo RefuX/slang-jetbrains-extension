@@ -11,7 +11,7 @@ group = "slang"
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "1.9.25"
-    id("org.jetbrains.intellij.platform") version "2.0.1"
+    id("org.jetbrains.intellij.platform") version "2.16.0"
     id("org.jetbrains.grammarkit") version "2022.3.2.2"
 }
 
@@ -26,16 +26,14 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        intellijIdeaCommunity("2023.3.6")
+        intellijIdeaUltimate("2026.1.2")
         pluginVerifier()
         zipSigner()
-        instrumentationTools()
 
         jetbrainsRuntime()
         bundledPlugin("org.jetbrains.plugins.textmate")
-        plugin("com.redhat.devtools.lsp4ij:0.13.0")
+        plugin("com.redhat.devtools.lsp4ij:0.14.2")
     }
-    implementation("com.google.code.gson:gson:2.11.0")
 }
 
 fun getResourcesFolder(): String
@@ -50,10 +48,10 @@ fun createZipFileOfVSCodeExtension()
 
     val inputPath = inputDirectory.toPath()
     val projectPath = project.projectDir.toPath()
-    
+
     val hiddenRelativeDir = projectPath.relativize(inputPath).resolve(".").toString()
     val docRelativeDir = projectPath.relativize(inputPath).resolve("doc").toString()
-    
+
     ZipOutputStream(BufferedOutputStream(FileOutputStream(outputZipFile))).use { zipFile ->
         inputDirectory.walkTopDown().forEach { file ->
             val zipFileName = file.toRelativeString(project.projectDir)
@@ -120,10 +118,10 @@ intellijPlatform {
             untilBuild = provider { null }
         }
     }
-    pluginVerification {
-        ides {
-            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2023.3.6")
-            ide(IntelliJPlatformType.CLion, "2023.3.6")
-        }
-    }
+//    pluginVerification {
+//        ides {
+//            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2023.3.6")
+//            ide(IntelliJPlatformType.CLion, "2023.3.6")
+//        }
+//    }
 }

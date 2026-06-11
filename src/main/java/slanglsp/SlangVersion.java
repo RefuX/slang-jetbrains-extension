@@ -1,11 +1,7 @@
 package slanglsp;
 
-import io.netty.util.AsciiString;
-import org.jcodings.specific.ASCIIEncoding;
-
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 
 public class SlangVersion
 {
@@ -36,7 +32,7 @@ public class SlangVersion
         }
     }
 
-    SlangVersion(InputStream versionFileStream)
+    public SlangVersion(InputStream versionFileStream)
     {
         try
         {
@@ -52,7 +48,7 @@ public class SlangVersion
         }
     }
 
-    SlangVersion(String versionString)
+    public SlangVersion(String versionString)
     {
         try
         {
@@ -84,10 +80,9 @@ public class SlangVersion
 
     public boolean equals(Object obj)
     {
-        if(!(obj instanceof SlangVersion))
+        if(!(obj instanceof SlangVersion otherVersion))
             return false;
 
-        SlangVersion otherVersion = (SlangVersion)obj;
         return this.getMajor().equals(otherVersion.getMajor()) && this.getMinor().equals(otherVersion.getMinor()) && this.getPatch().equals(otherVersion.getPatch());
     }
 }

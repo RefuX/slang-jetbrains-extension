@@ -5,15 +5,16 @@ import com.intellij.ui.JBColor;
 import com.intellij.util.ui.JBUI;
 
 import java.awt.GridBagConstraints;
+import java.util.Vector;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.util.Vector;
 
 public class SlangConfigurableGUI {
     private static final int TEXT_FIELD_COLUMNS = 40;
 
+    private Project mProject;
     private SlangPersistentStateConfig mConfig;
 
     private JCheckBox enableInlayHintsForDeducedTypes;
@@ -62,6 +63,7 @@ public class SlangConfigurableGUI {
     boolean addedDefaultListeners = false;
     public void createUI(Project project)
     {
+        mProject = project;
         mConfig = SlangPersistentStateConfig.getInstance(project);
         setGUIStateWithState(mConfig.getState());
         addDefaultListeners();
@@ -145,8 +147,8 @@ public class SlangConfigurableGUI {
     {
         mConfig.setState(this.deriveStateFromGUI());
 
-        for(var i : SlangLanguageClient.maybeAliveClients)
-            i.triggerChangeConfiguration();
+        // Force a reboot and ensure correct updating with settings
+        SlangLanguageServerFactory.restartLanguageServer(mProject);
     }
 
     SlangPersistentStateConfig.State resetState = null;

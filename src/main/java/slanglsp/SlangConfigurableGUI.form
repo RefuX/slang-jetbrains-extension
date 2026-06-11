@@ -84,7 +84,6 @@
         </constraints>
         <properties>
           <text value="Additional Include/Import Paths"/>
-          <toolTipText value="Specify paths using $project or $module (e.g., $project/build/slang/imports or $module/shaders/includes)."/>
         </properties>
       </component>
       <component id="10d0f" class="javax.swing.JLabel">
