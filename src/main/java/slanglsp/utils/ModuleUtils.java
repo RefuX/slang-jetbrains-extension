@@ -53,7 +53,7 @@ public class ModuleUtils {
         return roots.length == 0 ? null : roots[0];
     }
 
-    public static List<ModuleInfo> findModulesMatching(
+    public static Set<ModuleInfo> findModulesMatching(
             @NotNull Project project,
             @NotNull Predicate<VirtualFile> fileMatcher
     ) {
@@ -111,7 +111,7 @@ public class ModuleUtils {
             kept.add(path);
         }
 
-        List<ModuleInfo> result = new ArrayList<>();
+        Set<ModuleInfo> result = new HashSet<>();
         for (String path : kept)
             result.add(candidates.get(path));
         return result;
