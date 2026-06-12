@@ -7,10 +7,10 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.redhat.devtools.lsp4ij.server.StreamConnectionProvider;
+import org.eclipse.lsp4j.*;
 import org.jetbrains.annotations.NotNull;
 import slanglsp.utils.JsonRpc;
 import slanglsp.utils.JsonUtils;
@@ -90,8 +90,7 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
     // Single writer thread serialises all writes to slangdToLspOutputStream.
     private final BlockingQueue<byte[]> outgoingToLsp = new LinkedBlockingQueue<>();
 
-    // Per-module slangd processes — CopyOnWriteArrayList so addModuleIfMissing can
-    // append while routing threads iterate without locking.
+    // Per-module slangd processes
     private final List<SlangdProcess> processes = new CopyOnWriteArrayList<>();
 
     // During the initialize handshake, slangd responses are captured here.
@@ -107,7 +106,7 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
     // process+id so each backend response is matched independently.
     private final Set<BackendRequestKey> pendingInitializeResponses = ConcurrentHashMap.newKeySet();
 
-    // Hover responses are normalized defensively because LSP4J crashes if Hover.contents is null.
+    // Hover responses are normalized defensively because LSP4J complains if Hover.contents is null.
     private final Set<BackendRequestKey> pendingHoverRequests = ConcurrentHashMap.newKeySet();
 
     // Every client request with an id that is forwarded to a backend process is tracked
@@ -120,8 +119,7 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
 
     private volatile boolean stopped = false;
 
-    private record BackendRequestKey(@NotNull SlangdProcess process, @NotNull String id) {
-    }
+    private record BackendRequestKey(@NotNull SlangdProcess process, @NotNull String id) { }
 
     SlangMultiplexLanguageServer(Project project, String slangdExePath) {
         this.project = project;
@@ -148,15 +146,15 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
 
     @Override
     public void start() {
-        List<ModuleInfo> modulesWithSlangFiles = ApplicationManager.getApplication().runReadAction(
-                (Computable<List<ModuleInfo>>) this::detectModulesWithSlangFiles
+        Set<ModuleInfo> modulesWithSlangFiles = ApplicationManager.getApplication().runReadAction(
+                (Computable<Set<ModuleInfo>>) this::detectModulesWithSlangFiles
         );
 
-        processes.addAll(modulesWithSlangFiles.isEmpty()
-                ? List.of(startFallbackProjectProcess())
-                : modulesWithSlangFiles.stream()
+        processes.addAll(
+            modulesWithSlangFiles.stream()
                 .map(info -> startProcess(info.module(), info.moduleRoot()))
-                .toList());
+                .toList()
+        );
 
         startDaemonThread("slang-merge-writer", this::mergeThenWriteToLsp);
 
@@ -226,6 +224,7 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
         reopenOpenSlangFilesForModules(affectedModules, openSlangFiles);
     }
 
+    // didChangeConfiguration doesn't seem enough to nudge slangd for new files
     private void reopenOpenSlangFilesForModules(@NotNull Set<Module> affectedModules, List<VirtualFile> openSlangFiles) {
         if (affectedModules.isEmpty() || openSlangFiles == null || openSlangFiles.isEmpty())
             return;
@@ -258,25 +257,29 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
     }
 
     private void sendDidClose(@NotNull SlangdProcess process, @NotNull VirtualFile file) throws IOException {
-        JsonObject textDocument = new JsonObject();
-        textDocument.addProperty("uri", file.getUrl());
+        DidCloseTextDocumentParams closeParams =
+                new DidCloseTextDocumentParams(
+                        new TextDocumentIdentifier(file.getUrl())
+                );
 
-        JsonObject params = new JsonObject();
-        params.add("textDocument", textDocument);
+        JsonObject params = GSON.toJsonTree(closeParams).getAsJsonObject();
 
         JsonObject notification = notification(METHOD_TEXT_DOCUMENT_DID_CLOSE, params);
         writeToSlangdProcess(process, toBytes(notification));
     }
 
     private void sendDidOpen(@NotNull SlangdProcess process, @NotNull VirtualFile file, @NotNull Document document) throws IOException {
-        JsonObject textDocument = new JsonObject();
-        textDocument.addProperty("uri", file.getUrl());
-        textDocument.addProperty("languageId", "slang");
-        textDocument.addProperty("version", 0);
-        textDocument.addProperty("text", document.getText());
+        DidOpenTextDocumentParams openParams =
+                new DidOpenTextDocumentParams(
+                        new TextDocumentItem(
+                                file.getUrl(),
+                                "slang",
+                                0,
+                                document.getText()
+                        )
+                );
 
-        JsonObject params = new JsonObject();
-        params.add("textDocument", textDocument);
+        JsonObject params = GSON.toJsonTree(openParams).getAsJsonObject();
 
         JsonObject notification = notification(METHOD_TEXT_DOCUMENT_DID_OPEN, params);
         writeToSlangdProcess(process, toBytes(notification));
@@ -293,8 +296,8 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
                     // TODO: Only send if settings have changed?
                     Map<String, Object> settings = config.getState().toSettings();
 
-                    JsonObject params = new JsonObject();
-                    params.add("settings", toNestedJson(settings));
+                    DidChangeConfigurationParams changeParams = new DidChangeConfigurationParams(settings);
+                    JsonObject params = GSON.toJsonTree(changeParams).getAsJsonObject();
 
                     JsonObject notification = notification(METHOD_DID_CHANGE_CONFIGURATION, params);
                     try {
@@ -334,7 +337,10 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
                 // Block until the initializeResult arrives, then discard it.
                 readMessage(newProc.process().getInputStream());
 
-                JsonObject notification = notification(METHOD_INITIALIZED, new JsonObject());
+                InitializedParams initializedParams = new InitializedParams();
+                JsonObject params = GSON.toJsonTree(initializedParams).getAsJsonObject();
+
+                JsonObject notification = notification(METHOD_INITIALIZED, params);
                 writeToSlangdProcess(newProc, toBytes(notification));
             }
 
@@ -393,7 +399,7 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
 
                 if (METHOD_WORKSPACE_CONFIGURATION.equals(method)) {
                     // Intercept: answer with per-module settings, never forward to LSP4IJ.
-                    JsonObject response = buildConfigResponse(json, process);
+                    JsonObject response = buildConfigResponse(json);
                     writeToSlangdProcess(process, toBytes(response));
                 } else if (isSuppressedBackendResponse(process, json)) {
                     // Suppress duplicate responses from broadcast backend requests.
@@ -450,15 +456,6 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
         outgoingToLsp.offer(STOP_MERGE_WRITER);
     }
 
-    private SlangdProcess startFallbackProjectProcess() {
-        VirtualFile projectRoot = ProjectUtil.guessProjectDir(project);
-        if (projectRoot == null) {
-            throw new IllegalStateException("Unable to determine project root for slangd fallback process");
-        }
-
-        return startProcess(null, projectRoot);
-    }
-
     private SlangdProcess startProcess(Module module, @NotNull VirtualFile root) {
         try {
             ProcessBuilder pb = new ProcessBuilder(slangdExePath);
@@ -506,7 +503,7 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
         }
     }
 
-    private List<ModuleInfo> detectModulesWithSlangFiles() {
+    private Set<ModuleInfo> detectModulesWithSlangFiles() {
         return ModuleUtils.findModulesMatching(project, SlangUtils::isSlangFile);
     }
 
@@ -611,12 +608,9 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
         params.addProperty("rootPath", rootPath);
         params.addProperty("rootUri", rootUri);
 
-        JsonObject workspaceFolder = new JsonObject();
-        workspaceFolder.addProperty("uri", rootUri);
-        workspaceFolder.addProperty("name", workspaceName);
-
+        WorkspaceFolder workspaceFolder = new WorkspaceFolder(rootUri, workspaceName);
         JsonArray workspaceFolders = new JsonArray();
-        workspaceFolders.add(workspaceFolder);
+        workspaceFolders.add(GSON.toJsonTree(workspaceFolder));
         params.add("workspaceFolders", workspaceFolders);
 
         return params;
@@ -660,9 +654,13 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
         }
     }
 
-    private JsonObject buildConfigResponse(JsonObject requestJson, SlangdProcess process) {
+    private JsonObject buildConfigResponse(JsonObject requestJson) {
         Object id = extractId(requestJson);
-        JsonArray items = requestJson.getAsJsonObject("params").getAsJsonArray("items");
+        JsonObject rawParams = requestJson.has("params") && requestJson.get("params").isJsonObject()
+                ? requestJson.getAsJsonObject("params")
+                : new JsonObject();
+
+        ConfigurationParams params = GSON.fromJson(rawParams, ConfigurationParams.class);
 
         SlangPersistentStateConfig config = SlangPersistentStateConfig.getInstance(project);
         assert config != null;
@@ -670,13 +668,16 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
         Map<String, Object> settingsMap = config.getState().toSettings();
 
         JsonArray result = new JsonArray();
-        for (JsonElement item : items) {
-            JsonObject obj = item.getAsJsonObject();
-            String section = obj.has("section") ? obj.get("section").getAsString() : null;
+        List<ConfigurationItem> items = params != null && params.getItems() != null
+                ? params.getItems()
+                : List.of();
+
+        for (ConfigurationItem item : items) {
+            String section = item.getSection();
             result.add(toJsonElement(section != null ? settingsMap.get(section) : null));
         }
 
-        return JsonRpc.successResponse(id, result);
+        return successResponse(id, result);
     }
 
     private SlangdProcess findProcessForUri(String uri) {
@@ -716,9 +717,9 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
         }
     }
 
-    private static boolean diagnosticsBelongToProcess(JsonObject json, SlangdProcess p) {
+    private static boolean diagnosticsBelongToProcess(JsonObject json, SlangdProcess process) {
         String uri = JsonUtils.nestedStrField(json, "params", "uri");
-        return uriBelongsToProcess(uri, p);
+        return uriBelongsToProcess(uri, process);
     }
 
     private boolean isInitializeResponse(@NotNull SlangdProcess process, @NotNull JsonObject json) {
