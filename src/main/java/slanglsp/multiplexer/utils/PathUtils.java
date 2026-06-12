@@ -1,4 +1,4 @@
-package slanglsp.utils;
+package slanglsp.multiplexer.utils;
 
 import com.intellij.openapi.vfs.VirtualFile;
 

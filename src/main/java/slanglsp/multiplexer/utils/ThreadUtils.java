@@ -1,4 +1,4 @@
-package slanglsp.utils;
+package slanglsp.multiplexer.utils;
 
 import com.intellij.openapi.diagnostic.Logger;
 
@@ -13,7 +13,7 @@ public class ThreadUtils {
         void run() throws Exception;
     }
 
-    public static Thread startDaemonThread(String name, ThrowingRunnable task) {
+    public static void startDaemonThread(String name, ThrowingRunnable task) {
         Thread thread = new Thread(() -> {
             try {
                 task.run();
@@ -27,6 +27,5 @@ public class ThreadUtils {
 
         thread.setDaemon(true);
         thread.start();
-        return thread;
     }
 }

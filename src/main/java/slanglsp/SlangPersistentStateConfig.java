@@ -25,7 +25,7 @@ public class SlangPersistentStateConfig implements PersistentStateComponent<Slan
     public static final String SLANG_SEARCH_IN_ALL_WORKSPACE_DIRECTORIES = "slang.searchInAllWorkspaceDirectories";
     public static final String SLANG_ENABLE_STRICT_PER_MODULE_ISOLATION = "slang.enableStrictPerModuleIsolation";
 
-    static class State
+    public static class State
     {
         // TODO: make a cached state which transforms this State into an efficient to compare state (assumes rare to change settings)
         public List<String> additionalIncludePaths = new ArrayList<>();
@@ -63,7 +63,7 @@ public class SlangPersistentStateConfig implements PersistentStateComponent<Slan
                     && enableSearchingSubDirectoriesOfWorkspace.equals(other.enableSearchingSubDirectoriesOfWorkspace);
         }
 
-        Map<String, Object> toSettings()
+        public Map<String, Object> toSettings()
         {
             Map<String, Object> settings = new HashMap<>();
 

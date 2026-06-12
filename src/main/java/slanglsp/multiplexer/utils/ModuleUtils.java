@@ -1,4 +1,4 @@
-package slanglsp.utils;
+package slanglsp.multiplexer.utils;
 
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.module.Module;
@@ -10,7 +10,7 @@ import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileVisitor;
 import org.jetbrains.annotations.NotNull;
-import slanglsp.ModuleInfo;
+import slanglsp.multiplexer.ModuleInfo;
 
 import javax.annotation.Nullable;
 import java.util.*;

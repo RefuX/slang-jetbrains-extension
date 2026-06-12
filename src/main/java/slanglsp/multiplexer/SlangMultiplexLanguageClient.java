@@ -1,4 +1,4 @@
-package slanglsp;
+package slanglsp.multiplexer;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
@@ -10,6 +10,7 @@ import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.redhat.devtools.lsp4ij.client.LanguageClientImpl;
 import org.jetbrains.annotations.NotNull;
+import slanglsp.SlangPersistentStateConfig;
 import slanglsp.utils.SlangUtils;
 
 import java.util.*;
@@ -18,13 +19,13 @@ import java.util.stream.Stream;
 import static slanglsp.utils.JsonUtils.toNestedJson;
 import static slanglsp.utils.SlangUtils.isSlangFile;
 
-class SlangMultiplexLanguageClient extends LanguageClientImpl implements Disposable {
+public class SlangMultiplexLanguageClient extends LanguageClientImpl implements Disposable {
     private static final Logger LOG = Logger.getInstance(SlangMultiplexLanguageClient.class);
 
     private final Project project;
     private final SlangMultiplexLanguageServer slangMultiplexLanguageServer;
 
-    SlangMultiplexLanguageClient(Project project, SlangMultiplexLanguageServer slangMultiplexLanguageServer) {
+    public SlangMultiplexLanguageClient(Project project, SlangMultiplexLanguageServer slangMultiplexLanguageServer) {
         super(project);
         this.project = project;
         this.slangMultiplexLanguageServer = slangMultiplexLanguageServer;

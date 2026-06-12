@@ -19,6 +19,9 @@ import java.util.concurrent.*;
 import java.util.zip.ZipEntry;
 
 import org.jspecify.annotations.NonNull;
+import slanglsp.multiplexer.SlangMultiplexLanguageClient;
+import slanglsp.multiplexer.SlangMultiplexLanguageServer;
+import slanglsp.multiplexer.SlangProjectDisposableService;
 import slanglsp.utils.NotificationUtil;
 
 import static slanglsp.utils.NotificationUtil.notifyUser;
