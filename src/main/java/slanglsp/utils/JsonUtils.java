@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 public class JsonUtils {
-    private static final Gson GSON = new Gson();
+    public static final Gson GSON = new Gson();
 
     public static JsonElement toJsonElement(Object value) {
         if (value == null) return JsonNull.INSTANCE;
