@@ -748,7 +748,7 @@ class SlangMultiplexLanguageServer implements StreamConnectionProvider {
 
         BackendRequestKey key = backendResponseKey(process, json);
         if (key == null)
-            return false;
+            return true;
 
         return pendingBackendRequests.remove(key) == null;
     }
