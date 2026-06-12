@@ -270,7 +270,7 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
         }
     }
 
-    private void tryRunInitLogic(Project project)
+    private synchronized void tryRunInitLogic(Project project)
     {
         if(IS_FIRST_INIT)
         {
