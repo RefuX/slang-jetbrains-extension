@@ -6,6 +6,13 @@ import slanglsp.multiplexer.SlangdProcess;
 
 import static slanglsp.utils.JsonUtils.extractId;
 
+/**
+ * Since we have multiple slangd processes, we need to identify requests and responses by
+ * their process and id.
+ *
+ * @param process
+ * @param id
+ */
 public record BackendRequestKey(@NotNull SlangdProcess process, @NotNull String id) {
 
     /**

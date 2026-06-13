@@ -5,6 +5,9 @@ import slanglsp.multiplexer.SlangdProcess;
 import java.io.IOException;
 import java.util.List;
 
+/**
+ * Provides services for routing messages between the LSP and Slangd processes.
+ */
 public interface RoutingServices {
     List<SlangdProcess> processes();
 

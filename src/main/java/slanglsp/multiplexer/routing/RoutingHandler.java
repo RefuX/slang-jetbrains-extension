@@ -4,6 +4,9 @@ import com.intellij.openapi.diagnostic.Logger;
 
 import java.io.IOException;
 
+/**
+ * Implement and register to process messages from the LSP and Slangd processes.
+ */
 public interface RoutingHandler {
     Logger LOG = Logger.getInstance(RoutingHandler.class);
 
