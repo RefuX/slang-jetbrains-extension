@@ -3,6 +3,8 @@ import java.io.*
 import java.nio.file.Paths
 import java.util.zip.*
 import kotlin.io.path.absolute
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 fun getProjectVersion():String = "0.0.8"
 project.version = getProjectVersion()
@@ -10,9 +12,9 @@ group = "slang"
 
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "1.9.25"
+    id("org.jetbrains.kotlin.jvm") version "2.3.21"
     id("org.jetbrains.intellij.platform") version "2.16.0"
-    id("org.jetbrains.grammarkit") version "2022.3.2.2"
+    id("org.jetbrains.grammarkit") version "2023.3.0.3"
 }
 
 repositories {
@@ -26,7 +28,7 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        intellijIdeaUltimate("2026.1.2")
+        intellijIdea("2026.1.2")
         pluginVerifier()
         zipSigner()
 
@@ -70,11 +72,11 @@ fun createZipFileOfVSCodeExtension()
 
 fun createFileWithVersion()
 {
-    val versionFile: File = File(getResourcesFolder()+"version.txt")
+    val versionFile = File(getResourcesFolder()+"version.txt")
     versionFile.createNewFile()
-    val bw: BufferedWriter = BufferedWriter(FileWriter(versionFile))
-    bw.write(getProjectVersion());
-    bw.close();
+    val bw = BufferedWriter(FileWriter(versionFile))
+    bw.write(getProjectVersion())
+    bw.close()
 }
 
 fun mandatoryTasks()
@@ -91,8 +93,10 @@ tasks {
         targetCompatibility = "17"
     }
 
-    withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-        kotlinOptions.jvmTarget = "17"
+    withType<KotlinCompile> {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
     }
 
     buildPlugin
@@ -114,14 +118,15 @@ tasks {
 intellijPlatform {
     pluginConfiguration {
         ideaVersion {
-            sinceBuild = "233.0"
+            sinceBuild = "251.0"
             untilBuild = provider { null }
         }
     }
-//    pluginVerification {
-//        ides {
-//            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2023.3.6")
-//            ide(IntelliJPlatformType.CLion, "2023.3.6")
-//        }
-//    }
+
+    pluginVerification {
+        ides {
+            create(IntelliJPlatformType.IntellijIdea, "2026.1.2")
+            create(IntelliJPlatformType.CLion, "2026.1.2")
+        }
+    }
 }
