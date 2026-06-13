@@ -47,11 +47,8 @@ public final class ConfigurationHandler implements RoutingHandler {
             return false;
         }
 
-        SlangPersistentStateConfig config = SlangPersistentStateConfig.getInstance(project);
-        assert config != null;
-
         // TODO: Only send if settings have changed?
-        Map<String, Object> settings = config.getState().toSettings();
+        Map<String, Object> settings = SlangPersistentStateConfig.getInstance(project).getState().toSettings();
 
         DidChangeConfigurationParams changeParams = new DidChangeConfigurationParams(settings);
         JsonObject params = GSON.toJsonTree(changeParams).getAsJsonObject();
@@ -76,9 +73,13 @@ public final class ConfigurationHandler implements RoutingHandler {
 
         JsonObject response = buildConfigResponse(context.json());
         services.sendToSlangd(context.process(), toBytes(response));
+
         return true;
     }
 
+    /**
+     * We already know the configuration, and the lsp is already configured, so we respond directly to slangd.
+     */
     private JsonObject buildConfigResponse(JsonObject requestJson) {
         Object id = extractId(requestJson);
         JsonObject rawParams = requestJson.has("params") && requestJson.get("params").isJsonObject()
@@ -87,10 +88,7 @@ public final class ConfigurationHandler implements RoutingHandler {
 
         ConfigurationParams params = GSON.fromJson(rawParams, ConfigurationParams.class);
 
-        SlangPersistentStateConfig config = SlangPersistentStateConfig.getInstance(project);
-        assert config != null;
-
-        Map<String, Object> settingsMap = config.getState().toSettings();
+        Map<String, Object> settingsMap = SlangPersistentStateConfig.getInstance(project).getState().toSettings();
 
         JsonArray result = new JsonArray();
         List<ConfigurationItem> items = params != null && params.getItems() != null

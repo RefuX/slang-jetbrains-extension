@@ -42,6 +42,7 @@ public final class BroadcastHandler implements RoutingHandler {
         }
 
         services.broadcastToSlangd(context.body());
+
         return true;
     }
 }

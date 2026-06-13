@@ -39,7 +39,6 @@ public final class InitializationHandler implements RoutingHandler {
     private final Set<BackendRequestKey> pendingInitializeResponses = ConcurrentHashMap.newKeySet();
     private static final long INITIALIZE_TIMEOUT_SECONDS = 30;
 
-    private volatile boolean initPhase = true;
     private volatile JsonObject lastInitParams;
 
     @Override
@@ -71,7 +70,7 @@ public final class InitializationHandler implements RoutingHandler {
     }
 
     private boolean isInitializeResponse(MessageContext context) {
-        if (!initPhase || !isResponse(context.json())) {
+        if (!isResponse(context.json())) {
             return false;
         }
 
@@ -100,9 +99,12 @@ public final class InitializationHandler implements RoutingHandler {
             JsonObject processSpecificRequest = buildInitializeRequestForProcess(json, process, services);
 
             BackendRequestKey key = BackendRequestKey.of(process, processSpecificRequest);
-            if (key != null) {
-                pendingInitializeResponses.add(key);
+            if (key == null) {
+                LOG.warn("Initialize request for slangd process has no trackable request id");
+                continue;
             }
+
+            pendingInitializeResponses.add(key);
 
             try {
                 services.sendToSlangd(process, toBytes(processSpecificRequest));
@@ -138,7 +140,6 @@ public final class InitializationHandler implements RoutingHandler {
             services.sendToLsp(results.get(0));
         }
 
-        initPhase = false;
         pendingInitializeResponses.clear();
     }
 

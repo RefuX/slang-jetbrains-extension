@@ -24,9 +24,11 @@ public final class DiagnosticsHandler implements RoutingHandler {
         }
 
         String uri = nestedStrField(context.json(), "params", "uri");
+        if (uriBelongsToProcess(uri, context.process())) {
+            services.sendToLsp(context.body());
+        }
 
-        // Diagnostics from a process that does not own the file: swallow them.
-        return !uriBelongsToProcess(uri, context.process());
+        return true;
     }
 
     private boolean uriBelongsToProcess(String uri, SlangdProcess process) {

@@ -21,7 +21,6 @@ import slanglsp.multiplexer.handlers.InitializationHandler;
 import slanglsp.multiplexer.handlers.ShutdownHandler;
 import slanglsp.multiplexer.handlers.TextDocumentHandler;
 import slanglsp.multiplexer.handlers.UnexpectedResponseHandler;
-import slanglsp.multiplexer.handlers.utils.PendingRequestTracker;
 import slanglsp.multiplexer.routing.MessageContext;
 import slanglsp.multiplexer.routing.RoutingHandler;
 import slanglsp.multiplexer.routing.RoutingServices;
@@ -102,16 +101,15 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
             throw new RuntimeException("Failed to create LSP pipe streams", e);
         }
 
-        PendingRequestTracker pendingRequestTracker = new PendingRequestTracker();
         this.handlers = List.of(
                 initializationHandler,
-                new ShutdownHandler(pendingRequestTracker),
+                new ShutdownHandler(),
                 new ConfigurationHandler(project),
                 new HoverHandler(),
-                new TextDocumentHandler(pendingRequestTracker),
+                new TextDocumentHandler(),
                 new BroadcastHandler(),
                 new DiagnosticsHandler(),
-                new UnexpectedResponseHandler(pendingRequestTracker)
+                new UnexpectedResponseHandler()
         );
     }
 
