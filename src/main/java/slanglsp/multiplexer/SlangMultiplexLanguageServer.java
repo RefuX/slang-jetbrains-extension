@@ -25,11 +25,9 @@ import slanglsp.multiplexer.handlers.utils.PendingRequestTracker;
 import slanglsp.multiplexer.routing.MessageContext;
 import slanglsp.multiplexer.routing.RoutingHandler;
 import slanglsp.multiplexer.routing.RoutingServices;
-import slanglsp.multiplexer.utils.ModuleUtils;
 import slanglsp.utils.SlangUtils;
 
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -43,15 +41,28 @@ import static slanglsp.multiplexer.utils.ModuleUtils.*;
 import static slanglsp.multiplexer.utils.PathUtils.*;
 import static slanglsp.multiplexer.utils.ThreadUtils.*;
 
+/**
+ * Stream connection provider that multiplexes one LSP4IJ language-server connection
+ * across multiple {@code slangd} backend processes.
+ * <p>
+ * A separate {@code slangd} process is started for each module that contains Slang
+ * files. Messages received from LSP4IJ are routed to the appropriate backend process
+ * or broadcast when no more specific route applies. Messages received from backend
+ * processes are merged back into the single stream consumed by LSP4IJ.
+ */
 public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
     private static final Logger LOG = Logger.getInstance(SlangMultiplexLanguageServer.class);
 
     // Large pipe buffer — LSP messages can be several hundred KB.
     private static final int PIPE_BUFFER_BYTES = 1024 * 1024; // 1 MiB
 
+    // The message send to stop the writer
     private static final byte[] STOP_MERGE_WRITER = new byte[0];
 
+    // The IDE project
     private final Project project;
+
+    // Path to slangd
     private final String slangdExePath;
 
     // LSP4IJ reads this stream. It carries messages from slangd processes to LSP4IJ.
@@ -68,14 +79,13 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
     // Per-module slangd processes
     private final List<SlangdProcess> processes = new CopyOnWriteArrayList<>();
 
-    // Kept as a typed reference so dynamically-added processes can reuse the original
-    // initialize params template.
+    // Reuse the original initialize params template.
     private final InitializationHandler initializationHandler = new InitializationHandler();
 
-    // Ordered chain of handlers. Each message is offered to every handler in turn until one
-    // claims it; anything unclaimed hits the direction-specific fallback.
+    // Ordered chain of handlers.
     private final List<RoutingHandler> handlers;
 
+    // Provided to the handlers
     private final RoutingServices routingServices = new MultiplexRoutingServices();
 
     private volatile boolean stopped = false;
@@ -92,7 +102,6 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
             throw new RuntimeException("Failed to create LSP pipe streams", e);
         }
 
-        // Shared request bookkeeping consulted by several handlers.
         PendingRequestTracker pendingRequestTracker = new PendingRequestTracker();
         this.handlers = List.of(
                 initializationHandler,
@@ -119,7 +128,7 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
     @Override
     public void start() {
         Set<ModuleInfo> modulesWithSlangFiles = ApplicationManager.getApplication().runReadAction(
-                (Computable<Set<ModuleInfo>>) this::detectModulesWithSlangFiles
+                (Computable<Set<ModuleInfo>>) () -> findModulesMatching(project, SlangUtils::isSlangFile)
         );
 
         processes.addAll(
@@ -143,7 +152,12 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
         shutdown();
     }
 
-    void slangFilesAdded(@NotNull List<VirtualFile> newSlangFiles, List<VirtualFile> openSlangFiles) {
+    /**
+     * Call if a set of new Slang files has been added to the project.
+     * @param newSlangFiles The new Slang files that have been added.
+     * @param openSlangFiles Files that are open in the IDE.
+     */
+    public void slangFilesAdded(@NotNull List<VirtualFile> newSlangFiles, List<VirtualFile> openSlangFiles) {
         if (newSlangFiles.isEmpty())
             return;
 
@@ -171,6 +185,11 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
         reopenOpenSlangFilesForModules(affectedModules, openSlangFiles);
     }
 
+    /**
+     * Call if a set of Slang files has been removed from the project.
+     * @param deletedFiles The Slang files that have been removed.
+     * @param openSlangFiles Files that are open in the IDE.
+     */
     public void slangFilesRemoved(@NotNull List<VirtualFile> deletedFiles, List<VirtualFile> openSlangFiles) {
         if (deletedFiles.isEmpty())
             return;
@@ -197,7 +216,8 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
     }
 
     /**
-     * didChangeConfiguration doesn't seem enough to nudge slangd for new files
+     * didChangeConfiguration doesn't seem enough to nudge slangd for new files,
+     * so we send a close and open request for all open Slang files in the affected modules.
      */
     private void reopenOpenSlangFilesForModules(@NotNull Set<Module> affectedModules, List<VirtualFile> openSlangFiles) {
         if (affectedModules.isEmpty() || openSlangFiles == null || openSlangFiles.isEmpty())
@@ -260,9 +280,9 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
     }
 
     /**
-     * Creates a new slangd process for {@code module}/{@code moduleRoot} if no existing
-     * process already covers that root. The new process is initialised with the same
-     * original {@code initialize} params template that was used for the original processes,
+     * Creates a new slangd process for {@code module} if no existing
+     * process already covers that module. The new process is initialised with the same
+     * original {@code initialize} params template that were used for the original processes,
      * but customised so this backend process sees exactly one workspace folder: its module root.
      */
     private void addProcessForModuleIfMissing(@NotNull Module module, @NotNull VirtualFile moduleRoot) {
@@ -418,33 +438,10 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
             ProcessBuilder pb = new ProcessBuilder(slangdExePath);
             pb.directory(new File(root.getPath()));
 
-            SlangdProcess process = new SlangdProcess(module, root, pb.start());
-            pipeSlangdErrorsToLog(process);
-
-            return process;
+            return new SlangdProcess(module, root, pb.start());
         } catch (IOException e) {
             throw new RuntimeException("Failed to start slangd process", e);
         }
-    }
-
-    private void pipeSlangdErrorsToLog(@NotNull SlangdProcess process) {
-        String moduleName = process.moduleName();
-
-        startDaemonThread("slang-stderr-" + moduleName, () -> {
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                    process.process().getErrorStream(),
-                    StandardCharsets.UTF_8
-            ))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    LOG.warn("slangd stderr [" + moduleName + "]: " + line);
-                }
-            } catch (IOException e) {
-                if (!stopped && process.isAlive()) {
-                    LOG.warn("Failed reading slangd stderr for module " + moduleName, e);
-                }
-            }
-        });
     }
 
     private static void closeQuietly(Closeable closeable) {
@@ -464,10 +461,6 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
                         || message.contains("Read end dead")
                         || message.contains("Stream closed")
         );
-    }
-
-    private Set<ModuleInfo> detectModulesWithSlangFiles() {
-        return ModuleUtils.findModulesMatching(project, SlangUtils::isSlangFile);
     }
 
     private void mergeThenWriteToLsp() {

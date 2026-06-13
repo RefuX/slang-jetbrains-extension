@@ -2,11 +2,10 @@ package slanglsp.multiplexer;
 
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.vfs.VirtualFile;
-
-import javax.annotation.Nonnull;
+import org.jetbrains.annotations.NotNull;
 
 public record ModuleInfo(
-        @Nonnull Module module,
-        @Nonnull VirtualFile moduleRoot
+        @NotNull Module module,
+        @NotNull VirtualFile moduleRoot
 ) {
 }

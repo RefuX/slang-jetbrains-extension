@@ -17,6 +17,18 @@ import java.util.*;
 import java.util.function.Predicate;
 
 public class ModuleUtils {
+    /**
+     * Finds the module whose logical root most specifically contains the given file.
+     * <p>
+     * Modules are first normalized so duplicate IntelliJ modules that share the same
+     * logical root are treated as a single module. If multiple module roots contain the
+     * file, the module with the longest matching root path is returned, which assigns
+     * files in nested modules to the nested module rather than to an ancestor.
+     *
+     * @param file file to locate within the project's module roots
+     * @param project project whose modules should be searched
+     * @return the best owning module, or {@code null} if no logical module root contains the file
+     */
     public static @Nullable Module findOwningModuleByContentRoot(
             @NotNull VirtualFile file,
             @NotNull Project project
@@ -39,6 +51,12 @@ public class ModuleUtils {
         return bestModule;
     }
 
+    /**
+     * Returns the directory that should be treated as the module's logical workspace root.
+     *
+     * @param module module whose logical root should be resolved
+     * @return the logical module root, or {@code null} if no external project path or content root exists
+     */
     public static @Nullable VirtualFile getLogicalModuleRoot(@NotNull Module module)
     {
         String externalProjectPath = ExternalSystemApiUtil.getExternalProjectPath(module);
@@ -53,6 +71,13 @@ public class ModuleUtils {
         return roots.length == 0 ? null : roots[0];
     }
 
+    /**
+     * Finds project modules that contain at least one file accepted by the supplied matcher.
+     *
+     * @param project project whose modules should be searched
+     * @param fileMatcher predicate used to identify matching files
+     * @return set of matching module/module-root pairs
+     */
     public static Set<ModuleInfo> findModulesMatching(
             @NotNull Project project,
             @NotNull Predicate<VirtualFile> fileMatcher
@@ -118,15 +143,15 @@ public class ModuleUtils {
     }
 
     /**
-     * There can often be multiple modules with the same logical root.
-     * - module1
-     * - module1.test
-     * - module1.main
+     * Normalizes a module array so each logical module root is represented once.
      * <p>
-     * We want just moudle1
+     * IntelliJ may create several modules for one logical project directory, especially
+     * for external-system imports with source-set modules such as {@code module.main} and
+     * {@code module.test}. When several modules share a logical root, the shortest module
+     * name is kept because it is usually the parent module name.
      *
-     * @param modules Full module list
-     * @return The normalized module list
+     * @param modules full module list
+     * @return normalized module list with at most one module per logical root
      */
     private static Module[] normalizeModules(@NotNull Module[] modules) {
         Map<String, Module> modulesByLogicalRoot = new LinkedHashMap<>();
@@ -144,15 +169,13 @@ public class ModuleUtils {
         return modulesByLogicalRoot.values().toArray(Module[]::new);
     }
 
-
     /**
-     * Find a file in a module that matches a given predicate.
-     * TODO: Could pass in all modules instead of content roots
+     * Returns whether the given root contains a file accepted by the matcher.
      *
-     * @param root The root of the search path
-     * @param allContentRootPaths Stops recursing into a submodule if it is a child of one of these paths
-     * @param fileMatcher The function to match files against
-     * @return True if a matching file was found, false otherwise
+     * @param root root file or directory to search
+     * @param allContentRootPaths content root paths used as child module boundaries
+     * @param fileMatcher predicate used to identify matching files
+     * @return {@code true} if a matching file was found under this root; otherwise {@code false}
      */
     private static boolean moduleHasMatchingFile(
             @NotNull VirtualFile root,

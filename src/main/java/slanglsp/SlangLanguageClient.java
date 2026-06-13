@@ -3,7 +3,7 @@ package slanglsp;
 import com.intellij.openapi.project.Project;
 import com.redhat.devtools.lsp4ij.ServerStatus;
 import com.redhat.devtools.lsp4ij.client.LanguageClientImpl;
-import org.jspecify.annotations.NonNull;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingDeque;
@@ -38,7 +38,7 @@ class SlangLanguageClient extends LanguageClientImpl
     }
 
     @Override
-    public void handleServerStatusChanged(@NonNull ServerStatus serverStatus)
+    public void handleServerStatusChanged(@NotNull ServerStatus serverStatus)
     {
         if (serverStatus == ServerStatus.started)
         {

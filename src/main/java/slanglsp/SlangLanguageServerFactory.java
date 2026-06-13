@@ -18,7 +18,6 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.zip.ZipEntry;
 
-import org.jspecify.annotations.NonNull;
 import slanglsp.multiplexer.SlangMultiplexLanguageClient;
 import slanglsp.multiplexer.SlangMultiplexLanguageServer;
 import slanglsp.multiplexer.SlangProjectDisposableService;
@@ -84,11 +83,11 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
         return client;
     }
 
-    public static void stopLanguageServer(@NonNull Project project) {
+    public static void stopLanguageServer(@NotNull Project project) {
         LanguageServerManager.getInstance(project).stop(LANGUAGE_SERVER_ID);
     }
 
-    public static void restartLanguageServer(@NonNull Project project) {
+    public static void restartLanguageServer(@NotNull Project project) {
         LanguageServerManager.getInstance(project).start(
                 SlangLanguageServerFactory.LANGUAGE_SERVER_ID,
                 new LanguageServerManager.StartOptions().setForceRestart(true));
