@@ -10,6 +10,13 @@
 ### Settings
 ![Settings](./images/settings.png)
 
+#### Module Isolation
+If you want slang files in one module not to be able to see slang files in other modules, you can enable module isolation in the settings.
+
+`Enable Searching Sub-Directories Of Workspace` will search only in the module.
+
+`Additional Include/Import Paths` will be relative to the module.
+
 ---
 
 ### Jetbrains plugin distribution page
