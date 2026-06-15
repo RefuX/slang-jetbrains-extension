@@ -1,10 +1,12 @@
 package slanglsp.multiplexer.handlers;
 
+import slanglsp.multiplexer.routing.BackendRequestKey;
 import slanglsp.multiplexer.routing.MessageContext;
 import slanglsp.multiplexer.routing.RoutingHandler;
 import slanglsp.multiplexer.routing.RoutingServices;
 
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static slanglsp.multiplexer.utils.LspUtils.METHOD_CANCEL_REQUEST;
 import static slanglsp.multiplexer.utils.LspUtils.METHOD_DID_CHANGE_WATCHED_FILES;
@@ -12,6 +14,7 @@ import static slanglsp.multiplexer.utils.LspUtils.METHOD_DID_CHANGE_WORKSPACE_FO
 import static slanglsp.multiplexer.utils.LspUtils.METHOD_EXIT;
 import static slanglsp.multiplexer.utils.LspUtils.METHOD_INITIALIZED;
 import static slanglsp.multiplexer.utils.LspUtils.METHOD_SET_TRACE;
+import static slanglsp.utils.JsonUtils.extractId;
 
 /**
  * Methods broadcast to every slangd process regardless of file scope.
@@ -35,13 +38,34 @@ public final class BroadcastHandler implements RoutingHandler {
             METHOD_CANCEL_REQUEST
     );
 
+    private final Set<Object> pending = ConcurrentHashMap.newKeySet();
+
     @Override
     public boolean fromLsp(MessageContext context, RoutingServices services) {
         if (!BROADCAST_METHODS.contains(context.method())) {
             return false;
         }
 
+        Object id = extractId(context.json());
+        if (id != null) {
+            pending.add(id);
+        }
+
         services.broadcastToSlangd(context.body());
+
+        return true;
+    }
+
+    @Override
+    public boolean fromSlangd(MessageContext context, RoutingServices services) {
+        Object id = extractId(context.json());
+
+        if (id == null || !pending.remove(id)) {
+            return false;
+        }
+
+        // we can get multiple responses, take just one and discard the rest
+        services.sendToLsp(context.body());
 
         return true;
     }
