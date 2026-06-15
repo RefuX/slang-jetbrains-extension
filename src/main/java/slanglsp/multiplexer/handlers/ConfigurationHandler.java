@@ -8,7 +8,6 @@ import org.eclipse.lsp4j.ConfigurationItem;
 import org.eclipse.lsp4j.ConfigurationParams;
 import org.eclipse.lsp4j.DidChangeConfigurationParams;
 import slanglsp.SlangPersistentStateConfig;
-import slanglsp.multiplexer.SlangdProcess;
 import slanglsp.multiplexer.routing.MessageContext;
 import slanglsp.multiplexer.routing.RoutingHandler;
 import slanglsp.multiplexer.routing.RoutingServices;
@@ -54,13 +53,7 @@ public final class ConfigurationHandler implements RoutingHandler {
         JsonObject params = GSON.toJsonTree(changeParams).getAsJsonObject();
         byte[] body = toBytes(notification(METHOD_DID_CHANGE_CONFIGURATION, params));
 
-        for (SlangdProcess process : services.processes()) {
-            try {
-                services.sendToSlangd(process, body);
-            } catch (IOException e) {
-                LOG.error("Failed to send didChangeConfiguration notification to slangd process", e);
-            }
-        }
+        services.broadcastToSlangd(body);
 
         return true;
     }
