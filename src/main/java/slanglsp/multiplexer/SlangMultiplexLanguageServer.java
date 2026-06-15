@@ -13,17 +13,14 @@ import com.redhat.devtools.lsp4ij.server.StreamConnectionProvider;
 import org.eclipse.lsp4j.*;
 import org.jetbrains.annotations.NotNull;
 
-import slanglsp.multiplexer.handlers.BroadcastHandler;
-import slanglsp.multiplexer.handlers.ConfigurationHandler;
-import slanglsp.multiplexer.handlers.DiagnosticsHandler;
-import slanglsp.multiplexer.handlers.HoverHandler;
-import slanglsp.multiplexer.handlers.InitializationHandler;
-import slanglsp.multiplexer.handlers.ShutdownHandler;
-import slanglsp.multiplexer.handlers.TextDocumentHandler;
-import slanglsp.multiplexer.handlers.UnexpectedResponseHandler;
+import slanglsp.multiplexer.handlers.*;
+import slanglsp.multiplexer.utils.IdRewriter;
+import slanglsp.multiplexer.routing.BackendRequestKey;
 import slanglsp.multiplexer.routing.MessageContext;
 import slanglsp.multiplexer.routing.RoutingHandler;
 import slanglsp.multiplexer.routing.RoutingServices;
+import slanglsp.multiplexer.utils.JsonRpc;
+import slanglsp.multiplexer.utils.JsonRpcMessageKind;
 import slanglsp.utils.SlangUtils;
 
 import java.io.*;
@@ -86,6 +83,9 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
 
     // Provided to the handlers
     private final RoutingServices routingServices = new MultiplexRoutingServices();
+
+    // Multiple Slangd processes will generate clashing ids
+    private final IdRewriter idRewriter = new IdRewriter();
 
     private volatile boolean stopped = false;
 
@@ -347,7 +347,16 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
             return;
         }
 
-        MessageContext context = new MessageContext(null, body, json, method);
+        // If this is a rewritten id get the original slang id
+        Object rawId = extractId(json);
+        if (IdRewriter.isRewrittenId(rawId)) {
+            BackendRequestKey backendRequestKey = idRewriter.fromLsp(rawId);
+            if (backendRequestKey != null) {
+                json.addProperty("id", backendRequestKey.id());
+            }
+        }
+
+        MessageContext context = new MessageContext(project, null, body, json, method);
 
         for (RoutingHandler handler : handlers) {
             if (handler.fromLsp(context, routingServices)) {
@@ -355,12 +364,10 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
             }
         }
 
-        fallbackFromLsp(context);
-    }
-
-    /** Unclaimed client messages are broadcast to every backend process. */
-    private void fallbackFromLsp(MessageContext context) {
-        broadcastToAllProcesses(context.body());
+        LOG.warn("fromLSP: Received unexpected JSON-RPC message from "
+                + context.process().moduleName()
+                + ": "
+                + context.json());
     }
 
     private void processIOException(IOException e) {
@@ -405,15 +412,27 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
         JsonObject json = parse(body);
         String method = strField(json);
 
-        MessageContext context = new MessageContext(process, body, json, method);
+        // Request will have a slangd id, there are multiple slangd processes, rewrite to unique id
+        if (JsonRpc.classify(json) == JsonRpcMessageKind.REQUEST) {
+            Object rawId = extractId(json);
+            assert rawId != null;
 
+            BackendRequestKey key = new BackendRequestKey(process, rawId.toString());
+            String newKey = idRewriter.fromSlangd(key);
+            json.addProperty("id", newKey);
+        }
+
+        MessageContext context = new MessageContext(project, process, body, json, method);
         for (RoutingHandler handler : handlers) {
             if (handler.fromSlangd(context, routingServices)) {
                 return;
             }
         }
 
-        routingServices.sendToLsp(body);
+        LOG.warn("fromSlangd: Received unexpected JSON-RPC message from "
+                + context.process().moduleName()
+                + ": "
+                + context.json());
     }
 
     private void shutdown() {
