@@ -109,7 +109,8 @@ public class SlangMultiplexLanguageServer implements StreamConnectionProvider {
                 new TextDocumentHandler(),
                 new BroadcastHandler(),
                 new DiagnosticsHandler(),
-                new UnexpectedResponseHandler()
+                new CompletionResolveHandler(project),
+                new FallbackRoutingHandler()
         );
     }
 

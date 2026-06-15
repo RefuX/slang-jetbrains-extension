@@ -15,4 +15,5 @@ public class LspUtils {
     public static final String METHOD_SET_TRACE = "$/setTrace";
     public static final String METHOD_CANCEL_REQUEST = "$/cancelRequest";
     public static final String METHOD_PUBLISH_DIAGNOSTICS = "textDocument/publishDiagnostics";
+    public static final String METHOD_COMPLETION_ITEM_RESOLVE = "completionItem/resolve";
 }

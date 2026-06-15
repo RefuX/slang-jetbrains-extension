@@ -101,6 +101,41 @@ public final class JsonRpc {
         }
     }
 
+    /**
+     * Message shapes:
+     * 1. Request has "method" and "id"
+     * 2. Notification has "method" and no id.
+     * 3. Response has "id" and either "result" or "error" and no method.
+     * 4. Error has "error" and no method/id.
+     *
+     * @param json input json
+     * @return classification of the json rpc message
+     */
+    public static JsonRpcMessageKind classify(JsonObject json) {
+        boolean hasMethod = json.has("method");
+        boolean hasId = json.has("id");
+        boolean hasResult = json.has("result");
+        boolean hasError = json.has("error");
+
+        if (hasMethod && hasId) {
+            return JsonRpcMessageKind.REQUEST;
+        }
+
+        if (hasMethod) {
+            return JsonRpcMessageKind.NOTIFICATION;
+        }
+
+        if (hasId && (hasResult || hasError)) {
+            return JsonRpcMessageKind.RESPONSE;
+        }
+
+        if (hasError) {
+            return JsonRpcMessageKind.ERROR;
+        }
+
+        return JsonRpcMessageKind.UNKNOWN;
+    }
+
     public static boolean isResponse(JsonObject json) {
         return !json.has("method") && (json.has("result") || json.has("error"));
     }
