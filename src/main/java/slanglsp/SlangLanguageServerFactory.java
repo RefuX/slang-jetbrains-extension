@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.redhat.devtools.lsp4ij.LanguageServerFactory;
 import com.redhat.devtools.lsp4ij.LanguageServerManager;
+import com.redhat.devtools.lsp4ij.LanguageServersRegistry;
 import com.redhat.devtools.lsp4ij.client.LanguageClientImpl;
 import com.redhat.devtools.lsp4ij.server.StreamConnectionProvider;
 import org.jetbrains.annotations.NotNull;
@@ -18,9 +19,8 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.zip.ZipEntry;
 
-import slanglsp.multiplexer.SlangMultiplexLanguageClient;
-import slanglsp.multiplexer.SlangMultiplexLanguageServer;
-import slanglsp.multiplexer.SlangProjectDisposableService;
+import slanglsp.modules.SlangModuleServerCoordinator;
+import slanglsp.modules.SlangProjectDisposableService;
 import slanglsp.utils.NotificationUtil;
 
 import static slanglsp.utils.NotificationUtil.notifyUser;
@@ -31,8 +31,13 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
 {
     private static final Logger LOG = Logger.getInstance(SlangLanguageServerFactory.class);
     private static boolean IS_FIRST_INIT = true;
-    private static final Map<Project, SlangMultiplexLanguageServer> SLANG_MULTIPLEX_SERVERS = new ConcurrentHashMap<>();
-    private static final String LANGUAGE_SERVER_ID = "slanglsp.SlangLanguageServer";
+
+    // Per-project coordinator that registers one real lsp4ij server definition per
+    // module when strict per-module isolation is enabled. Tracked here (rather than only
+    // via Disposer) so toggling the setting back off can tear it down deterministically.
+    private static final Map<Project, SlangModuleServerCoordinator> MODULE_SERVER_COORDINATORS = new ConcurrentHashMap<>();
+
+    public static final String LANGUAGE_SERVER_ID = "slanglsp.SlangLanguageServer";
 
     @NotNull
     public StreamConnectionProvider createConnectionProvider(@NotNull Project project)
@@ -51,6 +56,7 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
                     NotificationType.ERROR);
 
             stopLanguageServer(project);
+            stopModuleServerCoordinator(project);
 
             return new SlangNoOpProvider();
         }
@@ -58,11 +64,27 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
         SlangPersistentStateConfig.State state = SlangPersistentStateConfig.getInstance(project).getState();
         boolean strictPerModuleIsolation = state.enableStrictPerModuleIsolation;
         if (strictPerModuleIsolation) {
-            SlangMultiplexLanguageServer slangMultiplexLanguageServer = new SlangMultiplexLanguageServer(project, exePath.get());
-            SLANG_MULTIPLEX_SERVERS.put(project, slangMultiplexLanguageServer);
+            // The real work happens out-of-band: one independent lsp4ij server
+            // definition per module, each with its own `slangd` process, registered
+            // with LanguageServersRegistry and scoped to that module's files. This
+            // static "slanglsp.SlangLanguageServer" definition is disabled for the
+            // duration so it doesn't also claim every *.slang file via the global
+            // fileNamePatternMapping in plugin.xml; it returns a no-op connection.
+            String resolvedExePath = exePath.get();
+            MODULE_SERVER_COORDINATORS.computeIfAbsent(project, p -> {
+                SlangModuleServerCoordinator coordinator = new SlangModuleServerCoordinator(p, resolvedExePath);
+                Disposer.register(p.getService(SlangProjectDisposableService.class), coordinator);
+                coordinator.start();
+                return coordinator;
+            });
 
-            return slangMultiplexLanguageServer;
+            setStaticServerDefinitionEnabled(project, false);
+
+            return new SlangNoOpProvider();
         }
+
+        stopModuleServerCoordinator(project);
+        setStaticServerDefinitionEnabled(project, true);
 
         return new SlangLanguageServer(project);
     }
@@ -72,15 +94,19 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
     {
         tryRunInitLogic(project);
 
-        SlangMultiplexLanguageServer multiplexProvider = SLANG_MULTIPLEX_SERVERS.get(project);
-        if (multiplexProvider == null) {
-            return new SlangLanguageClient(project);
-        }
+        return new SlangLanguageClient(project);
+    }
 
-        SlangMultiplexLanguageClient client = new SlangMultiplexLanguageClient(project, multiplexProvider);
-        Disposer.register(project.getService(SlangProjectDisposableService.class), client);
+    private static void stopModuleServerCoordinator(@NotNull Project project) {
+        SlangModuleServerCoordinator coordinator = MODULE_SERVER_COORDINATORS.remove(project);
+        if (coordinator != null)
+            Disposer.dispose(coordinator);
+    }
 
-        return client;
+    private static void setStaticServerDefinitionEnabled(@NotNull Project project, boolean enabled) {
+        var definition = LanguageServersRegistry.getInstance().getServerDefinition(LANGUAGE_SERVER_ID);
+        if (definition != null)
+            definition.setEnabled(enabled, project);
     }
 
     public static void stopLanguageServer(@NotNull Project project) {

@@ -1,4 +1,4 @@
-package slanglsp.multiplexer;
+package slanglsp.modules;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.components.Service;
