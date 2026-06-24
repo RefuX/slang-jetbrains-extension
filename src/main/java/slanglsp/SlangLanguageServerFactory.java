@@ -8,6 +8,7 @@ import com.redhat.devtools.lsp4ij.LanguageServerFactory;
 import com.redhat.devtools.lsp4ij.LanguageServerManager;
 import com.redhat.devtools.lsp4ij.LanguageServersRegistry;
 import com.redhat.devtools.lsp4ij.client.LanguageClientImpl;
+import com.redhat.devtools.lsp4ij.client.features.LSPClientFeatures;
 import com.redhat.devtools.lsp4ij.server.StreamConnectionProvider;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.textmate.TextMateService;
@@ -22,6 +23,7 @@ import java.util.zip.ZipEntry;
 import slanglsp.modules.SlangModuleServerCoordinator;
 import slanglsp.modules.SlangProjectDisposableService;
 import slanglsp.utils.NotificationUtil;
+import slanglsp.utils.SlangClientFeatures;
 
 import static slanglsp.utils.NotificationUtil.notifyUser;
 import static slanglsp.utils.NotificationUtil.runOrNotify;
@@ -44,16 +46,10 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
     {
         tryRunInitLogic(project);
 
-        Optional<String> exePath = findExecutableUsingExplicitSlangdLocation(project);
-        if (exePath.isEmpty())
-            exePath = findExecutableInPATH();
-
+        Optional<String> exePath = resolveSlangdExePath(project);
         if (exePath.isEmpty())
         {
-            notifyUser(
-                    project,
-                    "`slangd`/`slangd.exe` was not found in the `PATH` environment variable. It is preferable to add (once the latest vulkan SDK is installed) `$VK_SDK_PATH/bin` to your `PATH` environment variable (on linux the paths *may* differ slightly) to use `slangd` bundled with the Vulkan SDK. After these steps, restart this IDE.",
-                    NotificationType.ERROR);
+            notifyMissingSlangd(project);
 
             stopLanguageServer(project);
             stopModuleServerCoordinator(project);
@@ -70,14 +66,18 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
             // static "slanglsp.SlangLanguageServer" definition is disabled for the
             // duration so it doesn't also claim every *.slang file via the global
             // fileNamePatternMapping in plugin.xml; it returns a no-op connection.
-            String resolvedExePath = exePath.get();
-            MODULE_SERVER_COORDINATORS.computeIfAbsent(project, p -> {
-                SlangModuleServerCoordinator coordinator = new SlangModuleServerCoordinator(p, resolvedExePath);
-                Disposer.register(p.getService(SlangProjectDisposableService.class), coordinator);
-                coordinator.start();
-                return coordinator;
-            });
-
+            //
+            // This branch is only a defensive fallback for races — the normal path
+            // disables the static definition *before* lsp4ij ever decides to start it
+            // (see syncWithStrictModeSetting), since by the time createConnectionProvider
+            // is called lsp4ij has already committed to starting this wrapper. Returning
+            // a no-op connection here doesn't undo that: lsp4ij still considers the
+            // wrapper "started" against fake streams, and later stopping/restarting it
+            // sends a graceful LSP shutdown request that can never get a response,
+            // timing out (see SlangConfigurableGUI.apply()/the startup activity, which
+            // call setStaticServerDefinitionEnabled(false) ahead of time to avoid this
+            // ever being reached in practice).
+            startModuleServerCoordinatorIfAbsent(project, exePath.get());
             setStaticServerDefinitionEnabled(project, false);
 
             return new SlangNoOpProvider();
@@ -89,12 +89,94 @@ public class SlangLanguageServerFactory implements LanguageServerFactory
         return new SlangLanguageServer(project);
     }
 
+    /**
+     * Brings the static "slanglsp.SlangLanguageServer" definition and the per-module
+     * coordinator in line with the current {@code enableStrictPerModuleIsolation}
+     * setting, proactively rather than reactively.
+     * <p>
+     * Must be called <em>before</em> anything could cause lsp4ij to lazily start the
+     * static definition's wrapper (a file matching {@code *.slang} being opened) — once
+     * that happens it's too late to cleanly back out: {@code createConnectionProvider}
+     * would have already returned a connection (real or {@link SlangNoOpProvider}) that
+     * lsp4ij considers "started," and disabling the definition afterward doesn't stop
+     * that wrapper. If it's backed by {@link SlangNoOpProvider} (because strict mode was
+     * already on), later stopping/restarting it sends a graceful LSP shutdown request
+     * over fake streams that can never respond, timing out.
+     * <p>
+     * Called from {@link SlangStrictModeStartupActivity} on project open (covers
+     * "strict mode already saved as on when the project opens") and from
+     * {@code SlangConfigurableGUI.apply()} (covers toggling the setting at runtime).
+     */
+    public static void syncWithStrictModeSetting(@NotNull Project project)
+    {
+        SlangPersistentStateConfig.State state = SlangPersistentStateConfig.getInstance(project).getState();
+        boolean strictPerModuleIsolation = state.enableStrictPerModuleIsolation;
+
+        if (strictPerModuleIsolation)
+        {
+            // Disable first so the static definition can never again be the one lsp4ij
+            // lazily starts for a matching file, then stop it — safe to call even if no
+            // wrapper exists yet (no-op), and if one does exist it's necessarily backed
+            // by a real connection from before this toggle (non-strict mode), which can
+            // shut down gracefully without issue.
+            setStaticServerDefinitionEnabled(project, false);
+            stopLanguageServer(project);
+
+            Optional<String> exePath = resolveSlangdExePath(project);
+            if (exePath.isEmpty())
+            {
+                notifyMissingSlangd(project);
+                return;
+            }
+
+            startModuleServerCoordinatorIfAbsent(project, exePath.get());
+        }
+        else
+        {
+            stopModuleServerCoordinator(project);
+            setStaticServerDefinitionEnabled(project, true);
+            restartLanguageServer(project);
+        }
+    }
+
+    private static Optional<String> resolveSlangdExePath(@NotNull Project project)
+    {
+        Optional<String> exePath = findExecutableUsingExplicitSlangdLocation(project);
+        if (exePath.isEmpty())
+            exePath = findExecutableInPATH();
+        return exePath;
+    }
+
+    private static void notifyMissingSlangd(@NotNull Project project)
+    {
+        notifyUser(
+                project,
+                "`slangd`/`slangd.exe` was not found in the `PATH` environment variable. It is preferable to add (once the latest vulkan SDK is installed) `$VK_SDK_PATH/bin` to your `PATH` environment variable (on linux the paths *may* differ slightly) to use `slangd` bundled with the Vulkan SDK. After these steps, restart this IDE.",
+                NotificationType.ERROR);
+    }
+
+    private static void startModuleServerCoordinatorIfAbsent(@NotNull Project project, @NotNull String slangdExePath)
+    {
+        MODULE_SERVER_COORDINATORS.computeIfAbsent(project, p -> {
+            SlangModuleServerCoordinator coordinator = new SlangModuleServerCoordinator(p, slangdExePath);
+            Disposer.register(p.getService(SlangProjectDisposableService.class), coordinator);
+            coordinator.start();
+            return coordinator;
+        });
+    }
+
     @NotNull
     public LanguageClientImpl createLanguageClient(@NotNull Project project)
     {
         tryRunInitLogic(project);
 
         return new SlangLanguageClient(project);
+    }
+
+    @NotNull
+    public LSPClientFeatures createClientFeatures()
+    {
+        return SlangClientFeatures.withoutPullDiagnostics();
     }
 
     private static void stopModuleServerCoordinator(@NotNull Project project) {

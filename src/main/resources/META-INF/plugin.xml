@@ -42,8 +42,10 @@
                 displayName="Slang"
                 nonDefaultProject="true"/>
 
-        <projectService 
+        <projectService
                 serviceImplementation="slanglsp.SlangPersistentStateConfig"/>
+
+        <postStartupActivity implementation="slanglsp.SlangStrictModeStartupActivity"/>
     </extensions>
 
     <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">

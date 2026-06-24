@@ -150,8 +150,12 @@ public class SlangConfigurableGUI {
     {
         mConfig.setState(this.deriveStateFromGUI());
 
-        // Force a reboot and ensure correct updating with settings
-        SlangLanguageServerFactory.restartLanguageServer(mProject);
+        // Bring the static/per-module servers in line with the new settings. This must
+        // go through syncWithStrictModeSetting rather than a bare restartLanguageServer:
+        // toggling strict mode off needs the static definition re-enabled and started,
+        // not just restarted, and toggling it on needs the static definition disabled
+        // *before* it could be lazily started again — see that method's javadoc.
+        SlangLanguageServerFactory.syncWithStrictModeSetting(mProject);
     }
 
     SlangPersistentStateConfig.State resetState = null;

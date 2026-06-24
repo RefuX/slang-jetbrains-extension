@@ -4,12 +4,15 @@ import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.redhat.devtools.lsp4ij.client.LanguageClientImpl;
+import com.redhat.devtools.lsp4ij.client.features.LSPClientFeatures;
 import com.redhat.devtools.lsp4ij.server.ProcessStreamConnectionProvider;
 import com.redhat.devtools.lsp4ij.server.StreamConnectionProvider;
 import com.redhat.devtools.lsp4ij.server.definition.LanguageServerDefinition;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
+
+import slanglsp.utils.SlangClientFeatures;
 
 /**
  * Defines one real, independent {@code slangd} connection scoped to a single module.
@@ -61,5 +64,11 @@ final class SlangModuleLanguageServerDefinition extends LanguageServerDefinition
     @Override
     public LanguageClientImpl createLanguageClient(@NotNull Project project) {
         return new SlangModuleLanguageClient(project);
+    }
+
+    @NotNull
+    @Override
+    public LSPClientFeatures createClientFeatures() {
+        return SlangClientFeatures.withoutPullDiagnostics();
     }
 }

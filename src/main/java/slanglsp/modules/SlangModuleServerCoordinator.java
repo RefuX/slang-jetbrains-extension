@@ -2,6 +2,7 @@ package slanglsp.modules;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -28,7 +29,9 @@ import com.redhat.devtools.lsp4ij.server.definition.LanguageServerDefinition;
 import com.redhat.devtools.lsp4ij.server.definition.ServerFileNamePatternMapping;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -178,19 +181,24 @@ public final class SlangModuleServerCoordinator implements Disposable {
 
             String documentText = document.getText();
 
+            // ReflectiveDocumentReconnect.reconnect() ultimately calls
+            // LanguageServerWrapper.disconnect()/connect(), which mutate the Document's
+            // listener list directly (DocumentImpl.removeDocumentListener/
+            // addDocumentListener) — not safe to do concurrently with the real
+            // editor-driven document lifecycle, which runs on the EDT. getLanguageServers
+            // resolves this future on a background pool thread, so it must be dispatched
+            // to the EDT before touching the wrapper.
             LanguageServiceAccessor.getInstance(project)
                     .getLanguageServers(psiFile, f -> true, f -> true)
-                    .thenAccept(servers -> {
+                    .thenAccept(servers -> ApplicationManager.getApplication().invokeLater(() -> {
                         for (LanguageServerItem server : servers) {
                             boolean reconnected = ReflectiveDocumentReconnect.reconnect(
                                     server.getServerWrapper(), file, document, documentText, "slang");
 
-                            if (!reconnected) {
-                                ApplicationManager.getApplication().invokeLater(() ->
-                                        reopenPreservingCaret(FileEditorManager.getInstance(project), file));
-                            }
+                            if (!reconnected)
+                                reopenPreservingCaret(FileEditorManager.getInstance(project), file);
                         }
-                    });
+                    }, ModalityState.any()));
         });
     }
 
@@ -240,7 +248,14 @@ public final class SlangModuleServerCoordinator implements Disposable {
      * <p>
      * Registration/unregistration are both cheap, non-blocking calls into lsp4ij's
      * registry — they do not start or stop a process themselves, so this never blocks
-     * on backend I/O.
+     * on backend I/O. They must still run on the EDT: {@code addServerDefinition}/
+     * {@code removeServerDefinition} notify lsp4ij's own {@code LanguageServerExplorer}
+     * (the LSP console tool window's tree view), which mutates Swing tree state directly
+     * and asserts it's only ever touched from the EDT. {@code reconcile()} itself can be
+     * called from a background thread — lsp4ij invokes {@code createConnectionProvider}
+     * off-EDT, and {@code BulkFileListener.after} isn't guaranteed to run on the EDT
+     * either — so only the read-only computation of {@code wantedByRoot} happens on the
+     * calling thread; the actual registry mutation is dispatched separately.
      */
     private void reconcile() {
         Set<ModuleInfo> modulesWithSlangFiles = ApplicationManager.getApplication().runReadAction(
@@ -252,21 +267,64 @@ public final class SlangModuleServerCoordinator implements Disposable {
         for (ModuleInfo info : modulesWithSlangFiles)
             wantedByRoot.put(info.moduleRoot().getPath(), info);
 
+        ApplicationManager.getApplication().invokeLater(
+                () -> applyReconciliation(wantedByRoot), ModalityState.any());
+    }
+
+    /**
+     * Diffs {@code wantedByRoot} against {@link #registeredDefinitions} and applies the
+     * difference. Must run on the EDT (see {@link #reconcile()}). Reads/writes
+     * {@code registeredDefinitions} only from here and from {@link #dispose()} (also
+     * EDT-dispatched), so the two can never race even though {@code reconcile()} may be
+     * called concurrently from multiple threads.
+     */
+    private void applyReconciliation(@NotNull Map<String, ModuleInfo> wantedByRoot) {
+        Deque<ModuleInfo> toRegister = new ArrayDeque<>();
+        for (Map.Entry<String, ModuleInfo> entry : wantedByRoot.entrySet())
+            if (!registeredDefinitions.containsKey(entry.getKey()))
+                toRegister.add(entry.getValue());
+
+        Deque<String> toUnregister = new ArrayDeque<>();
+        for (String rootPath : registeredDefinitions.keySet())
+            if (!wantedByRoot.containsKey(rootPath))
+                toUnregister.add(rootPath);
+
+        processNextRegistrationChange(toRegister, toUnregister);
+    }
+
+    /**
+     * Registers or unregisters one module's definition per EDT dispatch, rather than
+     * looping through all pending changes in a single call.
+     * <p>
+     * {@code addServerDefinition} triggers an <em>asynchronous</em> background task
+     * (lsp4ij refreshing already-open editors for the new definition) that iterates its
+     * internal {@code fileAssociations} list — a plain, unsynchronized {@code ArrayList}.
+     * Calling {@code registerDefinitionForModule}/{@code unregisterDefinitionForModuleRoot}
+     * back-to-back for several modules in one call can mutate that same list (via
+     * {@code registerAssociation}/{@code removeAssociationsFor}) while an earlier
+     * registration's background task is still iterating it, throwing a
+     * {@code ConcurrentModificationException} inside lsp4ij itself. Spacing each change
+     * across a separate EDT tick substantially reduces — though, since the underlying
+     * list isn't synchronized on lsp4ij's side, can't fully guarantee against — that
+     * collision.
+     */
+    private void processNextRegistrationChange(
+            @NotNull Deque<ModuleInfo> toRegister,
+            @NotNull Deque<String> toUnregister
+    ) {
         LanguageServersRegistry registry = LanguageServersRegistry.getInstance();
 
-        // Register definitions for modules that don't have one yet.
-        for (Map.Entry<String, ModuleInfo> entry : wantedByRoot.entrySet()) {
-            if (registeredDefinitions.containsKey(entry.getKey()))
-                continue;
-
-            registerDefinitionForModule(registry, entry.getValue().module(), entry.getValue().moduleRoot());
+        if (!toRegister.isEmpty()) {
+            ModuleInfo info = toRegister.poll();
+            registerDefinitionForModule(registry, info.module(), info.moduleRoot());
+        } else if (!toUnregister.isEmpty()) {
+            unregisterDefinitionForModuleRoot(registry, toUnregister.poll());
+        } else {
+            return;
         }
 
-        // Unregister definitions for modules that no longer have any matching file.
-        for (String rootPath : Set.copyOf(registeredDefinitions.keySet())) {
-            if (!wantedByRoot.containsKey(rootPath))
-                unregisterDefinitionForModuleRoot(registry, rootPath);
-        }
+        ApplicationManager.getApplication().invokeLater(
+                () -> processNextRegistrationChange(toRegister, toUnregister), ModalityState.any());
     }
 
     private void registerDefinitionForModule(
@@ -303,8 +361,10 @@ public final class SlangModuleServerCoordinator implements Disposable {
 
     @Override
     public void dispose() {
-        LanguageServersRegistry registry = LanguageServersRegistry.getInstance();
-        for (String rootPath : Set.copyOf(registeredDefinitions.keySet()))
-            unregisterDefinitionForModuleRoot(registry, rootPath);
+        // Same EDT requirement, and same one-at-a-time staggering, as
+        // applyReconciliation()/processNextRegistrationChange(); see their javadoc.
+        Deque<String> toUnregister = new ArrayDeque<>(registeredDefinitions.keySet());
+        ApplicationManager.getApplication().invokeLater(
+                () -> processNextRegistrationChange(new ArrayDeque<>(), toUnregister), ModalityState.any());
     }
 }
